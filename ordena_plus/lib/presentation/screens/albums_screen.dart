@@ -4,7 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:ordena_plus/presentation/providers/folder_provider.dart';
 import 'package:ordena_plus/domain/models/folder.dart';
 import 'package:ordena_plus/presentation/providers/folder_count_provider.dart';
+import 'package:ordena_plus/presentation/providers/media_provider.dart';
 import 'package:ordena_plus/presentation/widgets/album_form_dialog.dart';
+import 'package:ordena_plus/presentation/utils/icon_helper.dart';
 
 class AlbumsScreen extends ConsumerStatefulWidget {
   const AlbumsScreen({super.key});
@@ -15,6 +17,74 @@ class AlbumsScreen extends ConsumerStatefulWidget {
 
 class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
   int _selectedIndex = 0;
+  bool _isSelectionMode = false;
+  final Set<String> _selectedIds = {};
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+        if (_selectedIds.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedIds.add(id);
+      }
+    });
+  }
+
+  void _enterSelectionMode(String id) {
+    // Prevent selecting system folders
+    if (id == Folder.unorganizedId || id == Folder.trashId) return;
+
+    setState(() {
+      _isSelectionMode = true;
+      _selectedIds.add(id);
+    });
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedIds.clear();
+    });
+  }
+
+  void _deleteSelectedAlbums() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Eliminar ${_selectedIds.length} álbumes'),
+        content: const Text(
+          '¿Estás seguro? Los archivos dentro de estos álbumes se moverán a "Inicio".',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () async {
+              final idsToDelete = _selectedIds.toList();
+              for (final id in idsToDelete) {
+                await ref.read(foldersProvider.notifier).deleteFolder(id);
+              }
+              // Force refresh of counts (especially Unorganized)
+              ref.invalidate(folderCountProvider);
+              ref.invalidate(unorganizedMediaProvider);
+
+              if (mounted) {
+                Navigator.pop(context);
+                _exitSelectionMode();
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -23,35 +93,41 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
     return Scaffold(
       backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Álbumes', style: TextStyle(color: Colors.white)),
+        title: _isSelectionMode
+            ? Text(
+                '${_selectedIds.length} seleccionados',
+                style: const TextStyle(color: Colors.white),
+              )
+            : const Text('Álbumes', style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.teal.shade600,
         automaticallyImplyLeading: false,
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: _exitSelectionMode,
+              )
+            : null,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add, color: Colors.white),
-            onPressed: () => _showCreateAlbumDialog(context),
-          ),
+          if (_isSelectionMode)
+            IconButton(
+              icon: const Icon(Icons.delete, color: Colors.white),
+              onPressed: _deleteSelectedAlbums,
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.add, color: Colors.white),
+              onPressed: () => _showCreateAlbumDialog(context),
+            ),
         ],
       ),
       body: foldersState.when(
         data: (folders) {
-          // Reorder: Unorganized first, then Trash, then others
-          final unorganized = folders.firstWhere(
-            (f) => f.id == Folder.unorganizedId,
-            orElse: () => const Folder(
-              id: 'unorganized',
-              name: 'Sin organizar',
-              iconPath: 'assets/icons/inbox.png',
-              type: FolderType.system,
-            ),
-          );
-
+          // Reorder: Trash first, then others
           final trash = folders.firstWhere(
             (f) => f.id == Folder.trashId,
             orElse: () => const Folder(
               id: 'trash',
               name: 'Papelera',
-              iconPath: 'assets/icons/trash.png',
               type: FolderType.system,
             ),
           );
@@ -62,7 +138,8 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
               )
               .toList();
 
-          final sortedFolders = [unorganized, trash, ...otherFolders];
+          // Unorganized is hidden from this view as it is the Home screen
+          final sortedFolders = [trash, ...otherFolders];
 
           return GridView.builder(
             padding: const EdgeInsets.all(16),
@@ -75,7 +152,53 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
             itemCount: sortedFolders.length,
             itemBuilder: (context, index) {
               final folder = sortedFolders[index];
-              return _FolderCard(folder: folder);
+              final isSelected = _selectedIds.contains(folder.id);
+
+              return GestureDetector(
+                onLongPress: () => _enterSelectionMode(folder.id),
+                onTap: () {
+                  if (_isSelectionMode) {
+                    // Prevent selecting system folders
+                    if (folder.id != Folder.unorganizedId &&
+                        folder.id != Folder.trashId) {
+                      _toggleSelection(folder.id);
+                    }
+                  } else {
+                    context.push('/folder/${folder.id}', extra: folder.name);
+                  }
+                },
+                child: Stack(
+                  children: [
+                    _FolderCard(folder: folder),
+                    if (_isSelectionMode &&
+                        folder.id != Folder.unorganizedId &&
+                        folder.id != Folder.trashId)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? Colors.teal
+                                : Colors.grey.withAlpha(100),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(4),
+                            child: Icon(
+                              Icons.check,
+                              size: 16,
+                              color: isSelected
+                                  ? Colors.white
+                                  : Colors.transparent,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
             },
           );
         },
@@ -133,33 +256,6 @@ class _FolderCard extends ConsumerWidget {
 
   const _FolderCard({required this.folder});
 
-  // Helper to get IconData from key
-  IconData _getIconData(String? key) {
-    const icons = {
-      'folder': Icons.folder,
-      'star': Icons.star,
-      'favorite': Icons.favorite,
-      'work': Icons.work,
-      'flight': Icons.flight,
-      'home': Icons.home,
-      'school': Icons.school,
-      'pets': Icons.pets,
-      'sports_soccer': Icons.sports_soccer,
-      'music_note': Icons.music_note,
-      'movie': Icons.movie,
-      'camera_alt': Icons.camera_alt,
-      'shopping_cart': Icons.shopping_cart,
-      'restaurant': Icons.restaurant,
-      'directions_car': Icons.directions_car,
-      'beach_access': Icons.beach_access,
-      'fitness_center': Icons.fitness_center,
-      'gamepad': Icons.gamepad,
-      'book': Icons.book,
-      'lightbulb': Icons.lightbulb,
-    };
-    return icons[key] ?? Icons.folder;
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final countAsync = ref.watch(folderCountProvider(folder.id));
@@ -175,64 +271,60 @@ class _FolderCard extends ConsumerWidget {
       icon = Icons.delete;
       color = Colors.red;
     } else {
-      // Use custom properties if available, otherwise fallback
-      icon = _getIconData(folder.iconKey);
+      icon = IconHelper.getIcon(folder.iconKey);
       color = folder.color != null ? Color(folder.color!) : Colors.teal;
     }
 
-    return GestureDetector(
-      onTap: () {
-        context.push('/folder/${folder.id}', extra: folder.name);
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withAlpha(20),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
+    return Container(
+      width: double.infinity,
+      height: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(20),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 48, color: color),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              folder.name,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey.shade800,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 48, color: color),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Text(
-                folder.name,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade800,
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+          ),
+          const SizedBox(height: 4),
+          countAsync.when(
+            data: (count) => Text(
+              '$count archivos',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
-            const SizedBox(height: 4),
-            countAsync.when(
-              data: (count) => Text(
-                '$count archivos',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-              ),
-              loading: () => const SizedBox(
-                width: 10,
-                height: 10,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              error: (_, __) => Text(
-                'Error',
-                style: TextStyle(fontSize: 12, color: Colors.red.shade300),
-              ),
+            loading: () => const SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(strokeWidth: 2),
             ),
-          ],
-        ),
+            error: (_, __) => Text(
+              'Error',
+              style: TextStyle(fontSize: 12, color: Colors.red.shade300),
+            ),
+          ),
+        ],
       ),
     );
   }

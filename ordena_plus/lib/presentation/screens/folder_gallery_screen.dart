@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,9 +7,11 @@ import 'package:ordena_plus/domain/models/media_item.dart';
 import 'package:ordena_plus/presentation/providers/dependency_injection.dart';
 import 'package:ordena_plus/presentation/providers/folder_provider.dart';
 import 'package:ordena_plus/presentation/providers/folder_count_provider.dart';
+import 'package:ordena_plus/presentation/providers/media_provider.dart';
 import 'package:ordena_plus/presentation/widgets/media_preview.dart';
 import 'package:ordena_plus/presentation/widgets/album_form_dialog.dart';
 import 'package:ordena_plus/presentation/utils/icon_helper.dart';
+import 'package:ordena_plus/presentation/widgets/thumbnail_widget.dart';
 
 class FolderGalleryScreen extends ConsumerStatefulWidget {
   final String folderId;
@@ -28,33 +29,100 @@ class FolderGalleryScreen extends ConsumerStatefulWidget {
 }
 
 class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
+  final ScrollController _scrollController = ScrollController();
   List<MediaItem> _mediaItems = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = true;
+  int _currentOffset = 0;
+  static const int _pageSize = 50; // Load 50 at a time for performance
+
   String _currentFolderName = '';
 
   // Batch selection
   bool _isSelectionMode = false;
   final Set<String> _selectedIds = {};
 
+  bool _newestFirst = true;
+
   @override
   void initState() {
     super.initState();
     _currentFolderName = widget.folderName;
-    _loadMedia();
+    _loadMedia(refresh: true);
+    _scrollController.addListener(_onScroll);
   }
 
-  Future<void> _loadMedia() async {
-    final repository = ref.read(mediaRepositoryProvider);
-    final items = await repository.getMediaInFolder(
-      widget.folderId,
-      limit: 1000,
-    ); // Increased limit
-    if (mounted) {
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >=
+            _scrollController.position.maxScrollExtent - 200 &&
+        !_isLoadingMore &&
+        _hasMore) {
+      _loadMedia();
+    }
+  }
+
+  Future<void> _loadMedia({bool refresh = false}) async {
+    if (refresh) {
       setState(() {
-        _mediaItems = items;
-        _isLoading = false;
+        _isLoading = true;
+        _mediaItems = [];
+        _currentOffset = 0;
+        _hasMore = true;
+      });
+    } else {
+      setState(() {
+        _isLoadingMore = true;
       });
     }
+
+    try {
+      final repository = ref.read(mediaRepositoryProvider);
+      final items = await repository.getMediaInFolder(
+        widget.folderId,
+        offset: _currentOffset,
+        limit: _pageSize,
+        newestFirst: _newestFirst,
+      );
+
+      if (mounted) {
+        setState(() {
+          if (items.length < _pageSize) {
+            _hasMore = false;
+          }
+
+          if (refresh) {
+            _mediaItems = items;
+          } else {
+            _mediaItems.addAll(items);
+          }
+
+          _currentOffset += items.length;
+          _isLoading = false;
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  void _toggleSortOrder() {
+    setState(() {
+      _newestFirst = !_newestFirst;
+    });
+    _loadMedia(refresh: true);
   }
 
   void _toggleSelection(String id) {
@@ -84,7 +152,7 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
     });
   }
 
-  void _selectAll() {
+  Future<void> _selectAll() async {
     setState(() {
       _selectedIds.clear();
       _selectedIds.addAll(_mediaItems.map((item) => item.id));
@@ -122,22 +190,34 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
             IconButton(
               icon: const Icon(Icons.select_all),
               onPressed: _selectAll,
-              tooltip: 'Seleccionar todo',
+              tooltip: 'Seleccionar cargados',
             ),
             IconButton(
               icon: const Icon(Icons.drive_file_move),
               onPressed: _showMoveDialog,
               tooltip: 'Mover a otro álbum',
             ),
-          ] else if (!isSystemFolder) ...[
+          ] else ...[
+            // Sort Button
             IconButton(
-              icon: const Icon(Icons.edit),
-              onPressed: () => _showEditDialog(),
+              icon: Icon(
+                _newestFirst ? Icons.arrow_downward : Icons.arrow_upward,
+              ),
+              onPressed: _toggleSortOrder,
+              tooltip: _newestFirst
+                  ? 'Más recientes primero'
+                  : 'Más antiguos primero',
             ),
-            IconButton(
-              icon: const Icon(Icons.delete),
-              onPressed: () => _showDeleteDialog(),
-            ),
+            if (!isSystemFolder) ...[
+              IconButton(
+                icon: const Icon(Icons.edit),
+                onPressed: () => _showEditDialog(),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete),
+                onPressed: () => _showDeleteDialog(),
+              ),
+            ],
           ],
         ],
       ),
@@ -166,15 +246,20 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
               ),
             )
           : GridView.builder(
+              controller: _scrollController,
               padding: const EdgeInsets.all(8),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
               ),
-              cacheExtent: 500,
-              itemCount: _mediaItems.length,
+              // Add +1 for loading indicator if loading more
+              itemCount: _mediaItems.length + (_isLoadingMore ? 1 : 0),
               itemBuilder: (context, index) {
+                if (index == _mediaItems.length) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+
                 final item = _mediaItems[index];
                 final isSelected = _selectedIds.contains(item.id);
 
@@ -192,20 +277,7 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: Image.file(
-                          File(item.path),
-                          fit: BoxFit.cover,
-                          cacheWidth: 300,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Container(
-                              color: Colors.grey[300],
-                              child: const Icon(
-                                Icons.broken_image,
-                                color: Colors.grey,
-                              ),
-                            );
-                          },
-                        ),
+                        child: ThumbnailWidget(mediaId: item.id, size: 200),
                       ),
                       if (_isSelectionMode)
                         Container(
@@ -300,7 +372,7 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Eliminar Álbum'),
         content: const Text(
-          '¿Estás seguro de que quieres eliminar este álbum definitivamente? Los archivos se moverán a "Sin organizar".',
+          '¿Estás seguro de que quieres eliminar este álbum definitivamente? Los archivos se moverán a "Inicio".',
         ),
         actions: [
           TextButton(
@@ -308,9 +380,15 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
             child: const Text('Cancelar'),
           ),
           TextButton(
-            onPressed: () {
-              ref.read(foldersProvider.notifier).deleteFolder(widget.folderId);
-              context.go('/albums'); // Go back to albums
+            onPressed: () async {
+              await ref
+                  .read(foldersProvider.notifier)
+                  .deleteFolder(widget.folderId);
+              ref.invalidate(folderCountProvider); // Refresh counts
+              ref.invalidate(unorganizedMediaProvider); // Refresh Home screen
+              if (context.mounted) {
+                context.go('/albums'); // Go back to albums
+              }
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Eliminar'),
@@ -357,8 +435,8 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
                       Color color;
 
                       if (folder.id == Folder.unorganizedId) {
-                        icon = Icons.inbox;
-                        color = Colors.orange;
+                        icon = Icons.home; // Use Home icon
+                        color = Colors.teal; // Match app theme
                       } else if (folder.id == Folder.trashId) {
                         icon = Icons.delete;
                         color = Colors.red;
@@ -371,7 +449,11 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
 
                       return ListTile(
                         leading: Icon(icon, color: color),
-                        title: Text(folder.name),
+                        title: Text(
+                          folder.id == Folder.unorganizedId
+                              ? 'Inicio' // Rename to Inicio
+                              : folder.name,
+                        ),
                         onTap: () async {
                           // Perform move
                           final repository = ref.read(mediaRepositoryProvider);
@@ -381,11 +463,12 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
 
                           // Refresh counts
                           ref.invalidate(folderCountProvider);
+                          ref.invalidate(unorganizedMediaProvider);
 
                           if (context.mounted) {
                             Navigator.pop(context); // Close dialog
                             _exitSelectionMode();
-                            _loadMedia(); // Reload current view
+                            _loadMedia(refresh: true); // Reload current view
                           }
                         },
                       );

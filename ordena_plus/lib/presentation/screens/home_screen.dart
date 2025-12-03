@@ -10,6 +10,7 @@ import 'package:ordena_plus/presentation/providers/folder_provider.dart';
 import 'package:ordena_plus/presentation/providers/folder_count_provider.dart';
 import 'package:ordena_plus/presentation/widgets/media_preview.dart';
 import 'package:ordena_plus/presentation/utils/icon_helper.dart';
+import 'package:ordena_plus/presentation/widgets/album_form_dialog.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -206,8 +207,52 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 return ListView.builder(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: carouselFolders.length,
+                  itemCount: carouselFolders.length + 1, // +1 for Create button
                   itemBuilder: (context, index) {
+                    if (index == carouselFolders.length) {
+                      return GestureDetector(
+                        onTap: () => _showCreateAlbumDialog(context),
+                        child: Container(
+                          width: 100,
+                          margin: const EdgeInsets.only(right: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.teal.shade200,
+                              width: 2,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withAlpha(10),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.add_circle_outline,
+                                size: 32,
+                                color: Colors.teal.shade400,
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Nuevo',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.teal.shade600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
                     final folder = carouselFolders[index];
                     return _CarouselItem(
                       folder: folder,
@@ -286,6 +331,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _showCreateAlbumDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlbumFormDialog(
+        title: 'Nuevo Álbum',
+        confirmText: 'Crear',
+        onConfirm: (name, iconKey, color) {
+          ref.read(foldersProvider.notifier).createFolder(name, iconKey, color);
+        },
       ),
     );
   }

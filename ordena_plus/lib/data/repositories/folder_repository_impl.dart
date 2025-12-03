@@ -39,7 +39,18 @@ class FolderRepositoryImpl implements FolderRepository {
   @override
   Future<void> deleteFolder(String id) async {
     final db = await _dbHelper.database;
-    await db.delete('folders', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      // 1. Move all media in this folder to "Unorganized"
+      await txn.update(
+        'media_items',
+        {'folderId': Folder.unorganizedId},
+        where: 'folderId = ?',
+        whereArgs: [id],
+      );
+
+      // 2. Delete the folder
+      await txn.delete('folders', where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   @override

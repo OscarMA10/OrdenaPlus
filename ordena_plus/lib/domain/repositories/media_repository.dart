@@ -12,6 +12,7 @@ abstract class MediaRepository {
     String folderId, {
     int offset = 0,
     int limit = 50,
+    bool newestFirst = true,
   });
   Future<void> assignFolder(String mediaId, String folderId);
   Future<void> syncMedia(); // Syncs device media with local DB

@@ -61,13 +61,14 @@ class MediaRepositoryImpl implements MediaRepository {
     String folderId, {
     int offset = 0,
     int limit = 1000, // Increased limit
+    bool newestFirst = true,
   }) async {
     final db = await _dbHelper.database;
     final result = await db.query(
       'media_items',
       where: 'folderId = ?',
       whereArgs: [folderId],
-      orderBy: 'dateCreated DESC',
+      orderBy: newestFirst ? 'dateCreated DESC' : 'dateCreated ASC',
       limit: limit,
       offset: offset,
     );
