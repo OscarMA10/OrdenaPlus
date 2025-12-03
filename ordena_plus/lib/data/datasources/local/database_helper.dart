@@ -1,89 +1,78 @@
-import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:path/path.dart';
 import 'package:ordena_plus/domain/models/folder.dart';
 
 class DatabaseHelper {
-  static final DatabaseHelper instance = DatabaseHelper._init();
+  static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
 
-  DatabaseHelper._init();
+  factory DatabaseHelper() => _instance;
+
+  DatabaseHelper._internal();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('ordena_plus.db');
+    _database = await _initDatabase();
     return _database!;
   }
 
-  Future<Database> _initDB(String filePath) async {
+  Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
+    final path = join(dbPath, 'ordena_plus.db');
 
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return await openDatabase(
+      path,
+      version: 2, // Incremented version
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
   }
 
-  Future<void> _createDB(Database db, int version) async {
-    // Folders Table
+  Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
-      CREATE TABLE folders (
+      CREATE TABLE folders(
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        type INTEGER NOT NULL,
         iconPath TEXT,
-        "order" INTEGER NOT NULL
+        iconKey TEXT,
+        color INTEGER,
+        type INTEGER NOT NULL,
+        order_index INTEGER NOT NULL
       )
     ''');
 
-    // Media Items Table
     await db.execute('''
-      CREATE TABLE media_items (
+      CREATE TABLE media_items(
         id TEXT PRIMARY KEY,
         path TEXT NOT NULL,
         type INTEGER NOT NULL,
-        dateCreated INTEGER,
         folderId TEXT,
-        FOREIGN KEY (folderId) REFERENCES folders (id) ON DELETE SET NULL
+        dateCreated INTEGER,
+        FOREIGN KEY(folderId) REFERENCES folders(id) ON DELETE SET NULL
       )
     ''');
 
-    // Insert Default Folders
-    await _insertDefaultFolders(db);
+    // Insert default folders
+    await db.insert('folders', {
+      'id': Folder.unorganizedId,
+      'name': 'Sin organizar',
+      'type': FolderType.system.index,
+      'order_index': 0,
+    });
+
+    await db.insert('folders', {
+      'id': Folder.trashId,
+      'name': 'Papelera',
+      'type': FolderType.system.index,
+      'order_index': 1,
+    });
   }
 
-  Future<void> _insertDefaultFolders(Database db) async {
-    final defaultFolders = [
-      const Folder(
-        id: Folder.unorganizedId,
-        name: 'Sin Organizar',
-        type: FolderType.system,
-        order: 0,
-      ),
-      const Folder(
-        id: Folder.photosId,
-        name: 'Fotos',
-        type: FolderType.system,
-        order: 1,
-      ),
-      const Folder(
-        id: Folder.videosId,
-        name: 'Vídeos',
-        type: FolderType.system,
-        order: 2,
-      ),
-      const Folder(
-        id: Folder.trashId,
-        name: 'Papelera',
-        type: FolderType.system,
-        order: 3,
-      ),
-    ];
-
-    for (var folder in defaultFolders) {
-      await db.insert('folders', folder.toMap());
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      // Add new columns to folders table
+      await db.execute('ALTER TABLE folders ADD COLUMN iconKey TEXT');
+      await db.execute('ALTER TABLE folders ADD COLUMN color INTEGER');
     }
-  }
-
-  Future<void> close() async {
-    final db = await instance.database;
-    db.close();
   }
 }

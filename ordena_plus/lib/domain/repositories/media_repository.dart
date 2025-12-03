@@ -2,7 +2,11 @@ import 'package:ordena_plus/domain/models/media_item.dart';
 
 abstract class MediaRepository {
   Future<List<MediaItem>> getMediaItems({int offset = 0, int limit = 50});
-  Future<List<MediaItem>> getUnorganizedMedia({int offset = 0, int limit = 50});
+  Future<List<MediaItem>> getUnorganizedMedia({
+    int offset = 0,
+    int limit = 1000,
+    bool newestFirst = true,
+  });
   Future<int> getUnorganizedCount(); // Get total count without pagination
   Future<List<MediaItem>> getMediaInFolder(
     String folderId, {

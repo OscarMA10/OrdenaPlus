@@ -9,6 +9,7 @@ import 'package:ordena_plus/presentation/providers/media_provider.dart';
 import 'package:ordena_plus/presentation/providers/folder_provider.dart';
 import 'package:ordena_plus/presentation/providers/folder_count_provider.dart';
 import 'package:ordena_plus/presentation/widgets/media_preview.dart';
+import 'package:ordena_plus/presentation/utils/icon_helper.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +25,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final mediaState = ref.watch(unorganizedMediaProvider);
     final foldersState = ref.watch(foldersProvider);
+    final unorganizedCountAsync = ref.watch(
+      folderCountProvider(Folder.unorganizedId),
+    );
+    final notifier = ref.read(unorganizedMediaProvider.notifier);
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
@@ -44,132 +49,187 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
         ],
       ),
-      body: mediaState.when(
-        data: (mediaItems) {
-          if (mediaItems.isEmpty) {
-            return const Center(
-              child: Text(
-                '¡Todo organizado! 🎉',
-                style: TextStyle(color: Colors.black, fontSize: 24),
-              ),
-            );
-          }
+      body: Column(
+        children: [
+          // Header: Counter and Sort
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            color: Colors.white,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                unorganizedCountAsync.when(
+                  data: (count) => Text(
+                    'Archivos sin organizar: $count',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.grey.shade800,
+                    ),
+                  ),
+                  loading: () => const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  error: (_, __) => const Text('Error'),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    notifier.toggleSortOrder();
+                  },
+                  icon: Icon(
+                    notifier.isNewestFirst
+                        ? Icons.arrow_downward
+                        : Icons.arrow_upward,
+                    size: 18,
+                  ),
+                  label: Text(
+                    notifier.isNewestFirst ? 'Recientes' : 'Antiguos',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.teal.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-          final currentItem = mediaItems.first;
+          // Action Buttons (Undo / Skip)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () {
+                    notifier.undo();
+                    ref.invalidate(folderCountProvider);
+                  },
+                  icon: const Icon(Icons.undo),
+                  label: const Text('Deshacer'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black87,
+                    elevation: 2,
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    notifier.skip();
+                  },
+                  icon: const Icon(Icons.skip_next),
+                  label: const Text('Omitir'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: Colors.black87,
+                    elevation: 2,
+                  ),
+                ),
+              ],
+            ),
+          ),
 
-          return Stack(
-            children: [
-              // Full size image area (Background)
-              Positioned.fill(
-                child: GestureDetector(
+          // Main Image Area
+          Expanded(
+            child: mediaState.when(
+              data: (mediaItems) {
+                if (mediaItems.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      '¡Todo organizado! 🎉',
+                      style: TextStyle(color: Colors.black, fontSize: 24),
+                    ),
+                  );
+                }
+
+                final currentItem = mediaItems.first;
+
+                return GestureDetector(
                   onTap: () => _showImageViewer(context, currentItem),
                   child: Container(
-                    color: Colors.grey[100],
-                    child: MediaPreview(mediaItem: currentItem),
-                  ),
-                ),
-              ),
-
-              // Undo Button (Top Left)
-              Positioned(
-                top: 16,
-                left: 16,
-                child: CircleAvatar(
-                  backgroundColor: Colors.white.withAlpha(200),
-                  radius: 24,
-                  child: IconButton(
-                    icon: const Icon(Icons.undo, color: Colors.black87),
-                    onPressed: () {
-                      ref.read(unorganizedMediaProvider.notifier).undo();
-                      ref.invalidate(folderCountProvider);
-                    },
-                  ),
-                ),
-              ),
-
-              // Skip Button (Top Right)
-              Positioned(
-                top: 16,
-                right: 16,
-                child: CircleAvatar(
-                  backgroundColor: Colors.white.withAlpha(200),
-                  radius: 24,
-                  child: IconButton(
-                    icon: const Icon(Icons.skip_next, color: Colors.black87),
-                    onPressed: () {
-                      ref.read(unorganizedMediaProvider.notifier).skip();
-                    },
-                  ),
-                ),
-              ),
-
-              // Carousel area (Bottom Overlay)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  height: 140,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [Colors.black.withAlpha(150), Colors.transparent],
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  child: foldersState.when(
-                    data: (folders) {
-                      final trash = folders.firstWhere(
-                        (f) => f.id == Folder.trashId,
-                        orElse: () => const Folder(
-                          id: 'trash',
-                          name: 'Papelera',
-                          iconPath: '',
-                          type: FolderType.system,
+                    width: double.infinity,
+                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withAlpha(50),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
                         ),
-                      );
-
-                      final otherFolders = folders
-                          .where(
-                            (f) =>
-                                f.id != Folder.unorganizedId &&
-                                f.id != Folder.trashId,
-                          )
-                          .toList();
-
-                      final carouselFolders = [trash, ...otherFolders];
-
-                      return ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: carouselFolders.length,
-                        itemBuilder: (context, index) {
-                          final folder = carouselFolders[index];
-                          return _CarouselItem(
-                            folder: folder,
-                            onTap: () {
-                              ref
-                                  .read(unorganizedMediaProvider.notifier)
-                                  .assignFolder(currentItem.id, folder.id);
-                              ref.invalidate(folderCountProvider);
-                            },
-                          );
-                        },
-                      );
-                    },
-                    loading: () => const Center(
-                      child: CircularProgressIndicator(color: Colors.white),
+                      ],
                     ),
-                    error: (_, __) => const SizedBox(),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: MediaPreview(mediaItem: currentItem),
+                    ),
                   ),
-                ),
-              ),
-            ],
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, st) => Center(child: Text('Error: $err')),
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, st) => Center(child: Text('Error: $err')),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // Carousel Area
+          Container(
+            height: 140,
+            color: Colors.grey[100],
+            padding: const EdgeInsets.only(bottom: 16),
+            child: foldersState.when(
+              data: (folders) {
+                final trash = folders.firstWhere(
+                  (f) => f.id == Folder.trashId,
+                  orElse: () => const Folder(
+                    id: 'trash',
+                    name: 'Papelera',
+                    iconKey: 'delete',
+                    type: FolderType.system,
+                  ),
+                );
+
+                final otherFolders = folders
+                    .where(
+                      (f) =>
+                          f.id != Folder.unorganizedId &&
+                          f.id != Folder.trashId,
+                    )
+                    .toList();
+
+                final carouselFolders = [trash, ...otherFolders];
+
+                return ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: carouselFolders.length,
+                  itemBuilder: (context, index) {
+                    final folder = carouselFolders[index];
+                    return _CarouselItem(
+                      folder: folder,
+                      onTap: () {
+                        final currentItems = mediaState.value;
+                        if (currentItems != null && currentItems.isNotEmpty) {
+                          notifier.assignFolder(
+                            currentItems.first.id,
+                            folder.id,
+                          );
+                          ref.invalidate(folderCountProvider);
+                        }
+                      },
+                    );
+                  },
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (_, __) => const SizedBox(),
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: Theme(
         data: Theme.of(context).copyWith(canvasColor: Colors.teal.shade600),
@@ -245,16 +305,9 @@ class _CarouselItem extends StatelessWidget {
     if (folder.id == Folder.trashId) {
       icon = Icons.delete;
       color = Colors.red;
-    } else if (folder.name.toLowerCase().contains('foto')) {
-      icon = Icons.photo_library;
-      color = Colors.blue;
-    } else if (folder.name.toLowerCase().contains('video') ||
-        folder.name.toLowerCase().contains('vídeo')) {
-      icon = Icons.video_library;
-      color = Colors.purple;
     } else {
-      icon = Icons.folder;
-      color = Colors.teal;
+      icon = IconHelper.getIcon(folder.iconKey);
+      color = folder.color != null ? Color(folder.color!) : Colors.teal;
     }
 
     return GestureDetector(
@@ -267,7 +320,7 @@ class _CarouselItem extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withAlpha(50),
+              color: Colors.black.withAlpha(10),
               blurRadius: 4,
               offset: const Offset(0, 2),
             ),

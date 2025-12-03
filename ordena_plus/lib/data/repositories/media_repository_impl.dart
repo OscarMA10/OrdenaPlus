@@ -31,7 +31,8 @@ class MediaRepositoryImpl implements MediaRepository {
   @override
   Future<List<MediaItem>> getUnorganizedMedia({
     int offset = 0,
-    int limit = 50,
+    int limit = 1000,
+    bool newestFirst = true,
   }) async {
     final db = await _dbHelper.database;
     final maps = await db.query(
@@ -40,7 +41,7 @@ class MediaRepositoryImpl implements MediaRepository {
       whereArgs: [Folder.unorganizedId],
       limit: limit,
       offset: offset,
-      orderBy: 'dateCreated DESC',
+      orderBy: newestFirst ? 'dateCreated DESC' : 'dateCreated ASC',
     );
     return maps.map((map) => MediaItem.fromMap(map)).toList();
   }
@@ -59,7 +60,7 @@ class MediaRepositoryImpl implements MediaRepository {
   Future<List<MediaItem>> getMediaInFolder(
     String folderId, {
     int offset = 0,
-    int limit = 50,
+    int limit = 1000, // Increased limit
   }) async {
     final db = await _dbHelper.database;
     final result = await db.query(
@@ -99,7 +100,8 @@ class MediaRepositoryImpl implements MediaRepository {
       return;
     }
 
-    final assets = await _mediaService.fetchAssets();
+    // Use fetchAllAssets to get ALL media
+    final assets = await _mediaService.fetchAllAssets();
     if (assets.isEmpty) {
       yield 1.0;
       return;

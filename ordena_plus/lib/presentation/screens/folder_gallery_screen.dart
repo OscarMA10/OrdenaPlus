@@ -9,6 +9,8 @@ import 'package:ordena_plus/presentation/providers/dependency_injection.dart';
 import 'package:ordena_plus/presentation/providers/folder_provider.dart';
 import 'package:ordena_plus/presentation/providers/folder_count_provider.dart';
 import 'package:ordena_plus/presentation/widgets/media_preview.dart';
+import 'package:ordena_plus/presentation/widgets/album_form_dialog.dart';
+import 'package:ordena_plus/presentation/utils/icon_helper.dart';
 
 class FolderGalleryScreen extends ConsumerStatefulWidget {
   final String folderId;
@@ -43,7 +45,10 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
 
   Future<void> _loadMedia() async {
     final repository = ref.read(mediaRepositoryProvider);
-    final items = await repository.getMediaInFolder(widget.folderId);
+    final items = await repository.getMediaInFolder(
+      widget.folderId,
+      limit: 1000,
+    ); // Increased limit
     if (mounted) {
       setState(() {
         _mediaItems = items;
@@ -79,6 +84,13 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
     });
   }
 
+  void _selectAll() {
+    setState(() {
+      _selectedIds.clear();
+      _selectedIds.addAll(_mediaItems.map((item) => item.id));
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final isSystemFolder =
@@ -106,13 +118,18 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
               )
             : null, // Default back button
         actions: [
-          if (_isSelectionMode)
+          if (_isSelectionMode) ...[
+            IconButton(
+              icon: const Icon(Icons.select_all),
+              onPressed: _selectAll,
+              tooltip: 'Seleccionar todo',
+            ),
             IconButton(
               icon: const Icon(Icons.drive_file_move),
               onPressed: _showMoveDialog,
               tooltip: 'Mover a otro álbum',
-            )
-          else if (!isSystemFolder) ...[
+            ),
+          ] else if (!isSystemFolder) ...[
             IconButton(
               icon: const Icon(Icons.edit),
               onPressed: () => _showEditDialog(),
@@ -247,54 +264,32 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
   }
 
   void _showEditDialog() {
-    final controller = TextEditingController(text: _currentFolderName);
+    final folders = ref.read(foldersProvider).value ?? [];
+    final folder = folders.firstWhere((f) => f.id == widget.folderId);
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Editar Álbum'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Nombre del álbum',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () async {
-              final newName = controller.text.trim();
-              if (newName.isNotEmpty) {
-                final folders = ref.read(foldersProvider).value ?? [];
-                final folder = folders.firstWhere(
-                  (f) => f.id == widget.folderId,
-                );
-                final updatedFolder = folder.copyWith(name: newName);
+      builder: (context) => AlbumFormDialog(
+        title: 'Editar Álbum',
+        confirmText: 'Guardar',
+        initialName: _currentFolderName,
+        initialIconKey: folder.iconKey,
+        initialColor: folder.color,
+        onConfirm: (name, iconKey, color) async {
+          final updatedFolder = folder.copyWith(
+            name: name,
+            iconKey: iconKey,
+            color: color,
+          );
 
-                await ref
-                    .read(foldersProvider.notifier)
-                    .updateFolder(updatedFolder);
+          await ref.read(foldersProvider.notifier).updateFolder(updatedFolder);
 
-                if (mounted) {
-                  setState(() {
-                    _currentFolderName = newName;
-                  });
-                  Navigator.pop(context);
-                }
-              }
-            },
-            child: const Text('Guardar'),
-          ),
-        ],
+          if (mounted) {
+            setState(() {
+              _currentFolderName = name;
+            });
+          }
+        },
       ),
     );
   }
@@ -343,18 +338,39 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
                       .where((f) => f.id != widget.folderId)
                       .toList();
 
+                  // Sort: Unorganized, then Trash, then others by order/creation
+                  targetFolders.sort((a, b) {
+                    if (a.id == Folder.unorganizedId) return -1;
+                    if (b.id == Folder.unorganizedId) return 1;
+                    if (a.id == Folder.trashId) return -1;
+                    if (b.id == Folder.trashId) return 1;
+                    return a.order.compareTo(b.order);
+                  });
+
                   return ListView.builder(
                     shrinkWrap: true,
                     itemCount: targetFolders.length,
                     itemBuilder: (context, index) {
                       final folder = targetFolders[index];
+
+                      IconData icon;
+                      Color color;
+
+                      if (folder.id == Folder.unorganizedId) {
+                        icon = Icons.inbox;
+                        color = Colors.orange;
+                      } else if (folder.id == Folder.trashId) {
+                        icon = Icons.delete;
+                        color = Colors.red;
+                      } else {
+                        icon = IconHelper.getIcon(folder.iconKey);
+                        color = folder.color != null
+                            ? Color(folder.color!)
+                            : Colors.teal;
+                      }
+
                       return ListTile(
-                        leading: Icon(
-                          folder.id == Folder.trashId
-                              ? Icons.delete
-                              : Icons.folder,
-                          color: Colors.teal,
-                        ),
+                        leading: Icon(icon, color: color),
                         title: Text(folder.name),
                         onTap: () async {
                           // Perform move

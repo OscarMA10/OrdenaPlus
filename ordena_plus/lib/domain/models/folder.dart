@@ -5,30 +5,41 @@ enum FolderType { system, custom }
 class Folder extends Equatable {
   final String id;
   final String name;
+  final String? iconPath; // Keeping for backward compatibility or custom images
+  final String? iconKey; // New: Key for Material Icons (e.g., 'star', 'work')
+  final int? color; // New: Color value (int)
   final FolderType type;
-  final String? iconPath; // For custom icons if needed, or use predefined icons
-  final int order; // For sorting in the wheel
+  final int order;
 
   const Folder({
     required this.id,
     required this.name,
-    required this.type,
     this.iconPath,
+    this.iconKey,
+    this.color,
+    this.type = FolderType.custom,
     this.order = 0,
   });
 
+  // System folder IDs
+  static const String unorganizedId = 'unorganized';
+  static const String trashId = 'trash';
+
   Folder copyWith({
-    String? id,
     String? name,
-    FolderType? type,
     String? iconPath,
+    String? iconKey,
+    int? color,
+    FolderType? type,
     int? order,
   }) {
     return Folder(
-      id: id ?? this.id,
+      id: id,
       name: name ?? this.name,
-      type: type ?? this.type,
       iconPath: iconPath ?? this.iconPath,
+      iconKey: iconKey ?? this.iconKey,
+      color: color ?? this.color,
+      type: type ?? this.type,
       order: order ?? this.order,
     );
   }
@@ -37,9 +48,12 @@ class Folder extends Equatable {
     return {
       'id': id,
       'name': name,
-      'type': type.index,
       'iconPath': iconPath,
-      'order': order,
+      'iconKey': iconKey,
+      'color': color,
+      'type': type.index,
+      'order_index':
+          order, // Note: DB column is order_index to avoid keyword conflict
     };
   }
 
@@ -47,18 +61,14 @@ class Folder extends Equatable {
     return Folder(
       id: map['id'] as String,
       name: map['name'] as String,
-      type: FolderType.values[map['type'] as int],
       iconPath: map['iconPath'] as String?,
-      order: map['order'] as int? ?? 0,
+      iconKey: map['iconKey'] as String?,
+      color: map['color'] as int?,
+      type: FolderType.values[map['type'] as int],
+      order: map['order_index'] as int? ?? 0,
     );
   }
 
-  // System folder IDs
-  static const String unorganizedId = 'unorganized';
-  static const String trashId = 'trash';
-  static const String photosId = 'photos';
-  static const String videosId = 'videos';
-
   @override
-  List<Object?> get props => [id, name, type, iconPath, order];
+  List<Object?> get props => [id, name, iconPath, iconKey, color, type, order];
 }

@@ -25,12 +25,14 @@ class FoldersNotifier extends StateNotifier<AsyncValue<List<Folder>>> {
     }
   }
 
-  Future<void> createFolder(String name) async {
+  Future<void> createFolder(String name, String iconKey, int color) async {
     try {
       final currentFolders = state.value ?? [];
       final newFolder = Folder(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         name: name,
+        iconKey: iconKey,
+        color: color,
         type: FolderType.custom,
         order: currentFolders.length,
       );

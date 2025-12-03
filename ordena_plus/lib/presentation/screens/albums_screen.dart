@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:ordena_plus/presentation/providers/folder_provider.dart';
 import 'package:ordena_plus/domain/models/folder.dart';
 import 'package:ordena_plus/presentation/providers/folder_count_provider.dart';
+import 'package:ordena_plus/presentation/widgets/album_form_dialog.dart';
 
 class AlbumsScreen extends ConsumerStatefulWidget {
   const AlbumsScreen({super.key});
@@ -114,41 +115,14 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
   }
 
   void _showCreateAlbumDialog(BuildContext context) {
-    final TextEditingController controller = TextEditingController();
-
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nuevo Álbum'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Nombre del álbum',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () {
-              final name = controller.text.trim();
-              if (name.isNotEmpty) {
-                ref.read(foldersProvider.notifier).createFolder(name);
-                Navigator.pop(context);
-              }
-            },
-            child: const Text('Crear'),
-          ),
-        ],
+      builder: (context) => AlbumFormDialog(
+        title: 'Nuevo Álbum',
+        confirmText: 'Crear',
+        onConfirm: (name, iconKey, color) {
+          ref.read(foldersProvider.notifier).createFolder(name, iconKey, color);
+        },
       ),
     );
   }
@@ -159,6 +133,33 @@ class _FolderCard extends ConsumerWidget {
 
   const _FolderCard({required this.folder});
 
+  // Helper to get IconData from key
+  IconData _getIconData(String? key) {
+    const icons = {
+      'folder': Icons.folder,
+      'star': Icons.star,
+      'favorite': Icons.favorite,
+      'work': Icons.work,
+      'flight': Icons.flight,
+      'home': Icons.home,
+      'school': Icons.school,
+      'pets': Icons.pets,
+      'sports_soccer': Icons.sports_soccer,
+      'music_note': Icons.music_note,
+      'movie': Icons.movie,
+      'camera_alt': Icons.camera_alt,
+      'shopping_cart': Icons.shopping_cart,
+      'restaurant': Icons.restaurant,
+      'directions_car': Icons.directions_car,
+      'beach_access': Icons.beach_access,
+      'fitness_center': Icons.fitness_center,
+      'gamepad': Icons.gamepad,
+      'book': Icons.book,
+      'lightbulb': Icons.lightbulb,
+    };
+    return icons[key] ?? Icons.folder;
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final countAsync = ref.watch(folderCountProvider(folder.id));
@@ -167,28 +168,16 @@ class _FolderCard extends ConsumerWidget {
     Color color;
 
     // Assign icons and colors based on folder
-    switch (folder.id) {
-      case 'unorganized':
-        icon = Icons.inbox;
-        color = Colors.orange;
-        break;
-      case 'trash':
-        icon = Icons.delete;
-        color = Colors.red;
-        break;
-      default:
-        // Check folder name for default folders
-        if (folder.name.toLowerCase().contains('foto')) {
-          icon = Icons.photo_library;
-          color = Colors.blue;
-        } else if (folder.name.toLowerCase().contains('video') ||
-            folder.name.toLowerCase().contains('vídeo')) {
-          icon = Icons.video_library;
-          color = Colors.purple;
-        } else {
-          icon = Icons.folder;
-          color = Colors.teal;
-        }
+    if (folder.id == Folder.unorganizedId) {
+      icon = Icons.inbox;
+      color = Colors.orange;
+    } else if (folder.id == Folder.trashId) {
+      icon = Icons.delete;
+      color = Colors.red;
+    } else {
+      // Use custom properties if available, otherwise fallback
+      icon = _getIconData(folder.iconKey);
+      color = folder.color != null ? Color(folder.color!) : Colors.teal;
     }
 
     return GestureDetector(
@@ -212,16 +201,19 @@ class _FolderCard extends ConsumerWidget {
           children: [
             Icon(icon, size: 48, color: color),
             const SizedBox(height: 12),
-            Text(
-              folder.name,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.grey.shade800,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                folder.name,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey.shade800,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 4),
             countAsync.when(

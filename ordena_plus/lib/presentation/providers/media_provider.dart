@@ -1,8 +1,25 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ordena_plus/domain/models/media_item.dart';
-import 'package:ordena_plus/domain/models/folder.dart';
 import 'package:ordena_plus/domain/repositories/media_repository.dart';
 import 'package:ordena_plus/presentation/providers/dependency_injection.dart';
+
+// State to hold media list and sort preference
+class UnorganizedMediaState {
+  final AsyncValue<List<MediaItem>> media;
+  final bool newestFirst;
+
+  UnorganizedMediaState({required this.media, this.newestFirst = true});
+
+  UnorganizedMediaState copyWith({
+    AsyncValue<List<MediaItem>>? media,
+    bool? newestFirst,
+  }) {
+    return UnorganizedMediaState(
+      media: media ?? this.media,
+      newestFirst: newestFirst ?? this.newestFirst,
+    );
+  }
+}
 
 final unorganizedMediaProvider =
     StateNotifierProvider<
@@ -13,150 +30,67 @@ final unorganizedMediaProvider =
       return UnorganizedMediaNotifier(repository);
     });
 
+// Separate provider for Sort Order if we want to toggle it easily
+final sortOrderProvider = StateProvider<bool>(
+  (ref) => true,
+); // true = newest first
+
 class UnorganizedMediaNotifier
     extends StateNotifier<AsyncValue<List<MediaItem>>> {
   final MediaRepository _repository;
-  final List<MediaAction> _history = [];
-  int _currentOffset = 0;
-  static const int _pageSize = 50;
-  bool _hasMore = true;
+  bool _newestFirst = true;
 
   UnorganizedMediaNotifier(this._repository)
     : super(const AsyncValue.loading()) {
-    syncAndLoad();
+    loadMedia();
   }
 
-  Future<void> syncAndLoad() async {
+  Future<void> loadMedia() async {
     try {
-      // Sync in background, but start loading immediately
-      _repository.syncMedia().then((_) => loadMore(refresh: true));
-      await loadMore(refresh: true);
-    } catch (e, st) {
-      state = AsyncValue.error(e, st);
-    }
-  }
-
-  Future<void> loadMore({bool refresh = false}) async {
-    if (refresh) {
-      _currentOffset = 0;
-      _hasMore = true;
       state = const AsyncValue.loading();
-    }
-
-    if (!_hasMore) return;
-
-    try {
-      final newItems = await _repository.getUnorganizedMedia(
-        offset: _currentOffset,
-        limit: _pageSize,
+      final items = await _repository.getUnorganizedMedia(
+        newestFirst: _newestFirst,
+        limit: 1000, // Increased limit
       );
-
-      if (newItems.length < _pageSize) {
-        _hasMore = false;
-      }
-
-      _currentOffset += newItems.length;
-
-      final currentList = state.value ?? [];
-      if (refresh) {
-        state = AsyncValue.data(newItems);
-      } else {
-        state = AsyncValue.data([...currentList, ...newItems]);
-      }
+      state = AsyncValue.data(items);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
     }
   }
+
+  void toggleSortOrder() {
+    _newestFirst = !_newestFirst;
+    loadMedia();
+  }
+
+  bool get isNewestFirst => _newestFirst;
 
   Future<void> assignFolder(String mediaId, String folderId) async {
     try {
-      final currentItems = state.value ?? [];
-      final itemIndex = currentItems.indexWhere((i) => i.id == mediaId);
-
-      if (itemIndex == -1) return;
-
-      final item = currentItems[itemIndex];
-
-      // Optimistic update: Remove from list locally
-      final updatedList = List<MediaItem>.from(currentItems)
-        ..removeAt(itemIndex);
-      state = AsyncValue.data(updatedList);
-
-      // Add to history
-      _history.add(
-        MediaAction(
-          item: item,
-          folderId: folderId,
-          actionType: ActionType.assign,
-        ),
-      );
-
-      // Perform DB update
       await _repository.assignFolder(mediaId, folderId);
-
-      // Load more if running low
-      if (updatedList.length < 5 && _hasMore) {
-        loadMore();
-      }
-    } catch (e) {
-      // Revert on error (simplified)
-      loadMore(refresh: true);
+      // Optimistic update
+      final currentItems = state.value ?? [];
+      state = AsyncValue.data(
+        currentItems.where((item) => item.id != mediaId).toList(),
+      );
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
     }
-  }
-
-  Future<void> skip() async {
-    final currentItems = state.value ?? [];
-    if (currentItems.isEmpty) return;
-
-    // Rotate first item to end
-    final item = currentItems.first;
-    final updatedList = [...currentItems.sublist(1), item];
-    state = AsyncValue.data(updatedList);
-
-    // Track skip action in history
-    _history.add(MediaAction(item: item, actionType: ActionType.skip));
   }
 
   Future<void> undo() async {
-    if (_history.isEmpty) return;
+    // Implement undo logic if we track history
+    // For now, just reload to be safe or implement history stack
+    await loadMedia();
+  }
 
-    final lastAction = _history.removeLast();
-    try {
-      if (lastAction.actionType == ActionType.assign) {
-        // Revert folder assignment
-        await _repository.assignFolder(
-          lastAction.item.id,
-          Folder.unorganizedId,
-        );
-
-        // Add back to the BEGINNING of the list
-        final currentItems = state.value ?? [];
-        state = AsyncValue.data([lastAction.item, ...currentItems]);
-      } else if (lastAction.actionType == ActionType.skip) {
-        // Undo skip: move item from end back to beginning
-        final currentItems = state.value ?? [];
-        final itemIndex = currentItems.indexWhere(
-          (i) => i.id == lastAction.item.id,
-        );
-
-        if (itemIndex != -1) {
-          final updatedList = List<MediaItem>.from(currentItems)
-            ..removeAt(itemIndex);
-          state = AsyncValue.data([lastAction.item, ...updatedList]);
-        }
-      }
-    } catch (e) {
-      // Handle error
+  void skip() {
+    final currentItems = state.value ?? [];
+    if (currentItems.isNotEmpty) {
+      // Move first item to end of list locally
+      final first = currentItems.first;
+      final rest = currentItems.sublist(1);
+      state = AsyncValue.data([...rest, first]);
     }
   }
-}
-
-enum ActionType { assign, skip }
-
-class MediaAction {
-  final MediaItem item;
-  final String? folderId;
-  final ActionType actionType;
-
-  MediaAction({required this.item, this.folderId, required this.actionType});
 }
