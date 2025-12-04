@@ -11,6 +11,7 @@ import 'package:ordena_plus/presentation/providers/folder_count_provider.dart';
 import 'package:ordena_plus/presentation/widgets/media_preview.dart';
 import 'package:ordena_plus/presentation/utils/icon_helper.dart';
 import 'package:ordena_plus/presentation/widgets/album_form_dialog.dart';
+import 'package:ordena_plus/presentation/providers/dependency_injection.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -21,6 +22,44 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _selectedIndex = 1; // Start on Home
+  bool _foldersInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Initialize file system after first frame (after files are loaded)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeFolders();
+    });
+  }
+
+  Future<void> _initializeFolders() async {
+    if (_foldersInitialized) return;
+    _foldersInitialized = true;
+
+    // Initialize file system (requests permission)
+    final folderRepository = ref.read(folderRepositoryProvider);
+    await folderRepository.initializeFileSystem();
+
+    // Auto-Sync on Startup (Smart Sync) - ONLY ONCE PER SESSION
+    final initialSyncCompleted = ref.read(initialSyncCompletedProvider);
+    if (!initialSyncCompleted) {
+      final mediaRepository = ref.read(mediaRepositoryProvider);
+
+      // 1. Fast Cleanup
+      await mediaRepository.cleanupDeleted();
+      ref.invalidate(unorganizedMediaProvider);
+      ref.invalidate(folderCountProvider(Folder.unorganizedId));
+
+      // 2. Smart Fetch
+      await mediaRepository.fetchNewMedia();
+      ref.invalidate(unorganizedMediaProvider);
+      ref.invalidate(folderCountProvider(Folder.unorganizedId));
+
+      // Mark as completed
+      ref.read(initialSyncCompletedProvider.notifier).state = true;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,13 +78,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white),
-            onPressed: () {
-              if (Platform.isAndroid) {
-                SystemNavigator.pop();
-              } else {
-                exit(0);
-              }
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            tooltip: 'Recargar archivos',
+            onPressed: () async {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Sincronizando archivos...'),
+                  duration: Duration(seconds: 1),
+                ),
+              );
+
+              final mediaRepository = ref.read(mediaRepositoryProvider);
+
+              // 1. Fast Cleanup (Immediate UI update for deletions)
+              await mediaRepository.cleanupDeleted();
+              ref.invalidate(unorganizedMediaProvider);
+
+              // 2. Smart Fetch (Delta sync for new files)
+              await mediaRepository.fetchNewMedia();
+              ref.invalidate(unorganizedMediaProvider);
+
+              // 3. Update counter
+              ref.invalidate(folderCountProvider(Folder.unorganizedId));
             },
           ),
         ],
@@ -319,7 +373,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           insetPadding: EdgeInsets.zero,
           child: Stack(
             children: [
-              Center(child: MediaPreview(mediaItem: mediaItem)),
+              Center(
+                child: MediaPreview(mediaItem: mediaItem, enableZoom: true),
+              ),
               Positioned(
                 top: 40,
                 right: 20,

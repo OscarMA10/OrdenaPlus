@@ -6,4 +6,5 @@ abstract class FolderRepository {
   Future<void> updateFolder(Folder folder);
   Future<void> deleteFolder(String id);
   Future<Folder?> getFolderById(String id);
+  Future<void> initializeFileSystem();
 }

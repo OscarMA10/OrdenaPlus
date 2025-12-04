@@ -5,8 +5,13 @@ import 'package:video_player/video_player.dart';
 
 class MediaPreview extends StatefulWidget {
   final MediaItem mediaItem;
+  final bool enableZoom;
 
-  const MediaPreview({super.key, required this.mediaItem});
+  const MediaPreview({
+    super.key,
+    required this.mediaItem,
+    this.enableZoom = false,
+  });
 
   @override
   State<MediaPreview> createState() => _MediaPreviewState();
@@ -52,20 +57,56 @@ class _MediaPreviewState extends State<MediaPreview> {
     super.dispose();
   }
 
+  void _togglePlay() {
+    if (_videoController != null && _videoController!.value.isInitialized) {
+      setState(() {
+        if (_videoController!.value.isPlaying) {
+          _videoController!.pause();
+        } else {
+          _videoController!.play();
+        }
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.mediaItem.type == MediaType.photo) {
-      return Image.file(
+      final image = Image.file(
         File(widget.mediaItem.path),
         fit: BoxFit.contain,
         key: ValueKey(widget.mediaItem.path),
+        errorBuilder: (context, error, stackTrace) {
+          return const Center(
+            child: Icon(Icons.broken_image, color: Colors.grey, size: 48),
+          );
+        },
       );
+
+      if (widget.enableZoom) {
+        return InteractiveViewer(minScale: 0.5, maxScale: 4.0, child: image);
+      }
+      return image;
     } else {
       if (_videoController != null && _videoController!.value.isInitialized) {
-        return AspectRatio(
+        Widget videoWidget = AspectRatio(
           aspectRatio: _videoController!.value.aspectRatio,
           child: VideoPlayer(_videoController!),
         );
+
+        // Add tap to play/pause ONLY if zoom is enabled (Full Screen Mode)
+        // This prevents stealing the tap event in Home Screen (Preview Mode)
+        if (widget.enableZoom) {
+          videoWidget = GestureDetector(onTap: _togglePlay, child: videoWidget);
+
+          videoWidget = InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4.0,
+            child: videoWidget,
+          );
+        }
+
+        return videoWidget;
       } else {
         return const Center(child: CircularProgressIndicator());
       }

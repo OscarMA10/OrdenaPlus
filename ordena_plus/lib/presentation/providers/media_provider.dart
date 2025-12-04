@@ -36,6 +36,9 @@ final sortOrderProvider = StateProvider<bool>(
   (ref) => true,
 ); // true = newest first
 
+// Provider to track if initial sync has completed
+final initialSyncCompletedProvider = StateProvider<bool>((ref) => false);
+
 class UnorganizedMediaNotifier
     extends StateNotifier<AsyncValue<List<MediaItem>>> {
   final MediaRepository _repository;
@@ -52,7 +55,7 @@ class UnorganizedMediaNotifier
       state = const AsyncValue.loading();
       final items = await _repository.getUnorganizedMedia(
         newestFirst: _newestFirst,
-        limit: 1000, // Increased limit
+        limit: 1000,
       );
       state = AsyncValue.data(items);
     } catch (e, st) {

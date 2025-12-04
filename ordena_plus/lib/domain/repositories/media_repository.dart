@@ -19,4 +19,6 @@ abstract class MediaRepository {
   Stream<double> syncWithProgress(); // Syncs with progress stream (0.0 to 1.0)
   Future<void> deleteMedia(String mediaId); // Move to trash or delete
   Future<int> getMediaCountInFolder(String folderId);
+  Future<void> cleanupDeleted(); // Fast cleanup of deleted files
+  Future<void> fetchNewMedia(); // Smart fetch of new files
 }

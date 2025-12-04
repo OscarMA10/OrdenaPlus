@@ -37,4 +37,35 @@ class MediaService {
     final int assetCount = await recentAlbum.assetCountAsync;
     return await recentAlbum.getAssetListRange(start: 0, end: assetCount);
   }
+
+  Future<int> getAssetCount() async {
+    final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
+      type: RequestType.common,
+      hasAll: true,
+    );
+    if (albums.isEmpty) return 0;
+    return await albums.first.assetCountAsync;
+  }
+
+  Future<List<AssetEntity>> fetchNewAssets(DateTime startDate) async {
+    final filter = FilterOptionGroup(
+      createTimeCond: DateTimeCond(min: startDate, max: DateTime.now()),
+    );
+
+    final List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(
+      type: RequestType.common,
+      hasAll: true,
+      filterOption: filter,
+    );
+
+    if (albums.isEmpty) return [];
+
+    // Get all assets from the filtered album (should be small number)
+    final AssetPathEntity recentAlbum = albums.first;
+    final int assetCount = await recentAlbum.assetCountAsync;
+
+    if (assetCount == 0) return [];
+
+    return await recentAlbum.getAssetListRange(start: 0, end: assetCount);
+  }
 }

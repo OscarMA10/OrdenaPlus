@@ -319,7 +319,9 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
           insetPadding: EdgeInsets.zero,
           child: Stack(
             children: [
-              Center(child: MediaPreview(mediaItem: mediaItem)),
+              Center(
+                child: MediaPreview(mediaItem: mediaItem, enableZoom: true),
+              ),
               Positioned(
                 top: 40,
                 right: 20,
