@@ -1,5 +1,5 @@
-import 'dart:async';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:ordena_plus/data/datasources/local/database_helper.dart';
 import 'package:ordena_plus/data/datasources/device/media_service.dart';
 import 'package:ordena_plus/domain/models/media_item.dart';
@@ -79,9 +79,109 @@ class MediaRepositoryImpl implements MediaRepository {
   @override
   Future<void> assignFolder(String mediaId, String folderId) async {
     final db = await _dbHelper.database;
+
+    // 1. Get current media item to find source path
+    final mediaResult = await db.query(
+      'media_items',
+      columns: ['path'],
+      where: 'id = ?',
+      whereArgs: [mediaId],
+    );
+    if (mediaResult.isEmpty) return;
+    final String currentPath = mediaResult.first['path'] as String;
+    final File sourceFile = File(currentPath);
+
+    if (!await sourceFile.exists()) {
+      debugPrint('File not found for move: $currentPath');
+      await _updateMediaFolderInDb(db, mediaId, folderId, currentPath);
+      return;
+    }
+
+    // 2. Determine destination directory
+    String destDirPath;
+    const String rootPath = '/storage/emulated/0/Pictures/Ordena+';
+
+    if (folderId == Folder.unorganizedId) {
+      destDirPath = rootPath;
+    } else if (folderId == Folder.trashId) {
+      destDirPath = '$rootPath/Papelera';
+    } else {
+      // Custom Album: Get folder name
+      final folderResult = await db.query(
+        'folders',
+        columns: ['name'],
+        where: 'id = ?',
+        whereArgs: [folderId],
+      );
+      if (folderResult.isNotEmpty) {
+        final folderName = folderResult.first['name'] as String;
+        destDirPath = '$rootPath/$folderName';
+      } else {
+        // Folder not found? Fallback to root
+        destDirPath = rootPath;
+      }
+    }
+
+    // Ensure destination directory exists
+    final Directory destDir = Directory(destDirPath);
+    if (!await destDir.exists()) {
+      await destDir.create(recursive: true);
+    }
+
+    // 3. Construct new path and handle collisions
+    String fileName = sourceFile.uri.pathSegments.last;
+    String newPath = '$destDirPath/$fileName';
+
+    // Check if moving to same location
+    if (File(newPath).path == sourceFile.path) {
+      // Same path, just update DB folderId (in case it was wrong)
+      await _updateMediaFolderInDb(db, mediaId, folderId, newPath);
+      return;
+    }
+
+    // Handle name collision
+    if (await File(newPath).exists()) {
+      final nameWithoutExtension = fileName.substring(
+        0,
+        fileName.lastIndexOf('.'),
+      );
+      final extension = fileName.substring(fileName.lastIndexOf('.'));
+      int counter = 1;
+      while (await File(newPath).exists()) {
+        newPath = '$destDirPath/${nameWithoutExtension}_$counter$extension';
+        counter++;
+      }
+    }
+
+    // 4. Move the file
+    try {
+      await sourceFile.rename(newPath);
+
+      // 5. Update Database with new path and folderId
+      await _updateMediaFolderInDb(db, mediaId, folderId, newPath);
+    } catch (e) {
+      debugPrint('Error moving file: $e');
+      // If rename fails (e.g. cross-device), try copy + delete
+      try {
+        await sourceFile.copy(newPath);
+        await sourceFile.delete();
+        await _updateMediaFolderInDb(db, mediaId, folderId, newPath);
+      } catch (e2) {
+        debugPrint('Error copying file: $e2');
+        // Failed to move, do not update DB
+      }
+    }
+  }
+
+  Future<void> _updateMediaFolderInDb(
+    Database db,
+    String mediaId,
+    String folderId,
+    String path,
+  ) async {
     await db.update(
       'media_items',
-      {'folderId': folderId},
+      {'folderId': folderId, 'path': path},
       where: 'id = ?',
       whereArgs: [mediaId],
     );
@@ -266,5 +366,37 @@ class MediaRepositoryImpl implements MediaRepository {
       [folderId],
     );
     return Sqflite.firstIntValue(result) ?? 0;
+  }
+
+  @override
+  Future<MediaItem?> getMediaItem(String mediaId) async {
+    final db = await _dbHelper.database;
+    final results = await db.query(
+      'media_items',
+      where: 'id = ?',
+      whereArgs: [mediaId],
+    );
+
+    if (results.isNotEmpty) {
+      return MediaItem.fromMap(results.first);
+    }
+    return null;
+  }
+
+  @override
+  Future<void> clearDatabase() async {
+    // LOGICAL RESET: Just wipe DB tables.
+    // Filesystem remains as-is, app treats all files as unorganized.
+    // syncMedia() will re-populate unorganized items.
+
+    final db = await _dbHelper.database;
+    await db.transaction((txn) async {
+      await txn.delete('media_items');
+      await txn.delete(
+        'folders',
+        where: 'id NOT IN (?, ?)',
+        whereArgs: [Folder.unorganizedId, Folder.trashId],
+      );
+    });
   }
 }

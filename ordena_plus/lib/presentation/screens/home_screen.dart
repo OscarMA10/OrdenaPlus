@@ -40,25 +40,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Initialize file system (requests permission)
     final folderRepository = ref.read(folderRepositoryProvider);
     await folderRepository.initializeFileSystem();
-
-    // Auto-Sync on Startup (Smart Sync) - ONLY ONCE PER SESSION
-    final initialSyncCompleted = ref.read(initialSyncCompletedProvider);
-    if (!initialSyncCompleted) {
-      final mediaRepository = ref.read(mediaRepositoryProvider);
-
-      // 1. Fast Cleanup
-      await mediaRepository.cleanupDeleted();
-      ref.invalidate(unorganizedMediaProvider);
-      ref.invalidate(folderCountProvider(Folder.unorganizedId));
-
-      // 2. Smart Fetch
-      await mediaRepository.fetchNewMedia();
-      ref.invalidate(unorganizedMediaProvider);
-      ref.invalidate(folderCountProvider(Folder.unorganizedId));
-
-      // Mark as completed
-      ref.read(initialSyncCompletedProvider.notifier).state = true;
-    }
   }
 
   @override
@@ -158,8 +139,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 ElevatedButton.icon(
-                  onPressed: () {
-                    notifier.undo();
+                  onPressed: () async {
+                    await notifier.undo();
                     ref.invalidate(folderCountProvider);
                   },
                   icon: const Icon(Icons.undo),
@@ -310,10 +291,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     final folder = carouselFolders[index];
                     return _CarouselItem(
                       folder: folder,
-                      onTap: () {
+                      onTap: () async {
                         final currentItems = mediaState.value;
                         if (currentItems != null && currentItems.isNotEmpty) {
-                          notifier.assignFolder(
+                          await notifier.assignFolder(
                             currentItems.first.id,
                             folder.id,
                           );

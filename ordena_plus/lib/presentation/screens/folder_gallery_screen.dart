@@ -12,6 +12,7 @@ import 'package:ordena_plus/presentation/widgets/media_preview.dart';
 import 'package:ordena_plus/presentation/widgets/album_form_dialog.dart';
 import 'package:ordena_plus/presentation/utils/icon_helper.dart';
 import 'package:ordena_plus/presentation/widgets/thumbnail_widget.dart';
+import 'package:ordena_plus/presentation/providers/settings_provider.dart';
 
 class FolderGalleryScreen extends ConsumerStatefulWidget {
   final String folderId;
@@ -248,8 +249,8 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
           : GridView.builder(
               controller: _scrollController,
               padding: const EdgeInsets.all(8),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: ref.watch(settingsProvider).gridColumns,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
               ),
@@ -277,7 +278,11 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
                     children: [
                       ClipRRect(
                         borderRadius: BorderRadius.circular(8),
-                        child: ThumbnailWidget(mediaId: item.id, size: 200),
+                        child: ThumbnailWidget(
+                          mediaId: item.id,
+                          path: item.path,
+                          size: 200,
+                        ),
                       ),
                       if (_isSelectionMode)
                         Container(

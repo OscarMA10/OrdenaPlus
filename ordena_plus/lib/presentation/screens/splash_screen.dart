@@ -55,7 +55,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
               width: 120,
               height: 120,
               decoration: BoxDecoration(
-                color: Colors.white,
                 borderRadius: BorderRadius.circular(24),
                 boxShadow: [
                   BoxShadow(
@@ -65,10 +64,9 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
                   ),
                 ],
               ),
-              child: Icon(
-                Icons.photo_library,
-                size: 60,
-                color: Colors.teal.shade600,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: Image.asset('assets/icon.png', fit: BoxFit.cover),
               ),
             ),
             const SizedBox(height: 32),

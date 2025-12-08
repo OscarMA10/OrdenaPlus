@@ -21,4 +21,6 @@ abstract class MediaRepository {
   Future<int> getMediaCountInFolder(String folderId);
   Future<void> cleanupDeleted(); // Fast cleanup of deleted files
   Future<void> fetchNewMedia(); // Smart fetch of new files
+  Future<MediaItem?> getMediaItem(String mediaId); // Get single media item
+  Future<void> clearDatabase(); // Reset all data
 }

@@ -65,11 +65,11 @@ final _router = GoRouter(
   initialLocation: '/splash',
 );
 
-class MyApp extends StatelessWidget {
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp.router(
       title: 'Ordena+',
       theme: ThemeData(

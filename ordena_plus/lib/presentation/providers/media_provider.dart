@@ -112,10 +112,17 @@ class UnorganizedMediaNotifier
           Folder.unorganizedId,
         );
 
-        // Add back to the BEGINNING of the list (or correct position based on sort?)
-        // For simplicity, add to beginning as user expects to see it back
-        final currentItems = state.value ?? [];
-        state = AsyncValue.data([lastAction.item, ...currentItems]);
+        // Fetch updated item to get the correct path (in case of rename/move)
+        final updatedItem = await _repository.getMediaItem(lastAction.item.id);
+
+        if (updatedItem != null) {
+          final currentItems = state.value ?? [];
+          state = AsyncValue.data([updatedItem, ...currentItems]);
+        } else {
+          // Fallback to old item if fetch fails (rare)
+          final currentItems = state.value ?? [];
+          state = AsyncValue.data([lastAction.item, ...currentItems]);
+        }
       } else if (lastAction.actionType == ActionType.skip) {
         // Undo skip: move item from end back to beginning
         final currentItems = state.value ?? [];
