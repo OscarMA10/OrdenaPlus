@@ -17,11 +17,13 @@ import 'package:ordena_plus/presentation/providers/settings_provider.dart';
 class FolderGalleryScreen extends ConsumerStatefulWidget {
   final String folderId;
   final String folderName;
+  final String? pathPrefix;
 
   const FolderGalleryScreen({
     super.key,
     required this.folderId,
     required this.folderName,
+    this.pathPrefix,
   });
 
   @override
@@ -46,12 +48,30 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
 
   bool _newestFirst = true;
 
+  // Storage volumes for Move Dialog
+  List<String> _storageVolumes = [];
+
   @override
   void initState() {
     super.initState();
     _currentFolderName = widget.folderName;
     _loadMedia(refresh: true);
     _scrollController.addListener(_onScroll);
+    _fetchStorageVolumes();
+  }
+
+  Future<void> _fetchStorageVolumes() async {
+    try {
+      final repository = ref.read(folderRepositoryProvider);
+      final volumes = await repository.getStorageVolumes();
+      if (mounted) {
+        setState(() {
+          _storageVolumes = volumes;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error fetching volumes: $e');
+    }
   }
 
   @override
@@ -90,6 +110,7 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
         offset: _currentOffset,
         limit: _pageSize,
         newestFirst: _newestFirst,
+        pathPrefix: widget.pathPrefix,
       );
 
       if (mounted) {
@@ -354,11 +375,24 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
         initialName: _currentFolderName,
         initialIconKey: folder.iconKey,
         initialColor: folder.color,
-        onConfirm: (name, iconKey, color) async {
+        // For editing, we don't show storage selector (storageVolumes is empty or single)
+        // The storage root is derived from folder.path
+        onConfirm: (name, iconKey, color, _) async {
+          // Keep the same storage root, just update the path with new name
+          String? newPath;
+          if (folder.path != null) {
+            final parentDir = folder.path!.substring(
+              0,
+              folder.path!.lastIndexOf('/'),
+            );
+            newPath = '$parentDir/$name';
+          }
+
           final updatedFolder = folder.copyWith(
             name: name,
             iconKey: iconKey,
             color: color,
+            path: newPath,
           );
 
           await ref.read(foldersProvider.notifier).updateFolder(updatedFolder);
@@ -379,7 +413,7 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Eliminar Álbum'),
         content: const Text(
-          '¿Estás seguro de que quieres eliminar este álbum definitivamente? Los archivos se moverán a "Inicio".',
+          '¿Estás seguro de que quieres eliminar este álbum definitivamente? Los archivos se moverán a "Papelera".',
         ),
         actions: [
           TextButton(
@@ -412,86 +446,193 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
         builder: (context, ref, child) {
           final foldersState = ref.watch(foldersProvider);
 
-          return AlertDialog(
-            title: const Text('Mover a...'),
-            content: SizedBox(
-              width: double.maxFinite,
-              child: foldersState.when(
-                data: (folders) {
-                  // Filter out current folder
-                  final targetFolders = folders
-                      .where((f) => f.id != widget.folderId)
-                      .toList();
+          // Manage local state for dialog
+          String? selectedVolume = _storageVolumes.isNotEmpty
+              ? (_storageVolumes.firstWhere(
+                  (v) => v.contains('emulated/0'),
+                  orElse: () => _storageVolumes.first,
+                ))
+              : null; // Check if we have volumes
 
-                  // Sort: Unorganized, then Trash, then others by order/creation
-                  targetFolders.sort((a, b) {
-                    if (a.id == Folder.unorganizedId) return -1;
-                    if (b.id == Folder.unorganizedId) return 1;
-                    if (a.id == Folder.trashId) return -1;
-                    if (b.id == Folder.trashId) return 1;
-                    return a.order.compareTo(b.order);
-                  });
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('Mover a...'),
+                content: SizedBox(
+                  width: double.maxFinite,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // "Ruta original" Option REMOVED per user request
 
-                  return ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: targetFolders.length,
-                    itemBuilder: (context, index) {
-                      final folder = targetFolders[index];
-
-                      IconData icon;
-                      Color color;
-
-                      if (folder.id == Folder.unorganizedId) {
-                        icon = Icons.home; // Use Home icon
-                        color = Colors.teal; // Match app theme
-                      } else if (folder.id == Folder.trashId) {
-                        icon = Icons.delete;
-                        color = Colors.red;
-                      } else {
-                        icon = IconHelper.getIcon(folder.iconKey);
-                        color = folder.color != null
-                            ? Color(folder.color!)
-                            : Colors.teal;
-                      }
-
-                      return ListTile(
-                        leading: Icon(icon, color: color),
-                        title: Text(
-                          folder.id == Folder.unorganizedId
-                              ? 'Inicio' // Rename to Inicio
-                              : folder.name,
+                      // Storage Selector (only if > 1)
+                      if (_storageVolumes.length > 1)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Almacenamiento',
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: selectedVolume,
+                                isDense: true,
+                                items: _storageVolumes.map((volume) {
+                                  final label = volume.contains('emulated/0')
+                                      ? 'Interno'
+                                      : 'SD (${volume.split('/').last})';
+                                  return DropdownMenuItem(
+                                    value: volume,
+                                    child: Text(label),
+                                  );
+                                }).toList(),
+                                onChanged: (value) {
+                                  if (value != null) {
+                                    setDialogState(() {
+                                      selectedVolume = value;
+                                    });
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
                         ),
-                        onTap: () async {
-                          // Perform move
-                          final repository = ref.read(mediaRepositoryProvider);
-                          for (final mediaId in _selectedIds) {
-                            await repository.assignFolder(mediaId, folder.id);
-                          }
 
-                          // Refresh counts
-                          ref.invalidate(folderCountProvider);
-                          ref.invalidate(unorganizedMediaProvider);
+                      // Folder List
+                      Flexible(
+                        child: foldersState.when(
+                          data: (folders) {
+                            // Determine if we are targeting a different volume
+                            // Default to true if no context, or false if same
+                            bool isDifferntVolume = false;
+                            if (widget.pathPrefix != null &&
+                                selectedVolume != null) {
+                              isDifferntVolume = !widget.pathPrefix!.startsWith(
+                                selectedVolume!,
+                              );
+                            } else if (selectedVolume != null &&
+                                _storageVolumes.isNotEmpty) {
+                              // heuristic?
+                            }
 
-                          if (context.mounted) {
-                            Navigator.pop(context); // Close dialog
-                            _exitSelectionMode();
-                            _loadMedia(refresh: true); // Reload current view
-                          }
-                        },
-                      );
-                    },
-                  );
-                },
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (err, _) => Text('Error: $err'),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Cancelar'),
-              ),
-            ],
+                            // Filter out current folder (unless different volume for Trash)
+                            // Unorganized is removed (handled by tile)
+                            final targetFolders = folders.where((f) {
+                              if (f.id == Folder.unorganizedId) return false;
+                              if (f.id == widget.folderId) {
+                                // If it's Trash and we are moving to different volume, Allow it.
+                                if (f.id == Folder.trashId &&
+                                    isDifferntVolume) {
+                                  return true;
+                                }
+                                return false;
+                              }
+                              return true;
+                            }).toList();
+
+                            // Filter by selected volume
+                            final filteredFolders = targetFolders.where((f) {
+                              if (selectedVolume == null) return true;
+                              // Show Trash always (system)
+                              if (f.id == Folder.trashId) return true;
+
+                              if (f.type == FolderType.system) return true;
+
+                              if (f.path != null) {
+                                return f.path!.startsWith(selectedVolume!);
+                              }
+                              return false;
+                            }).toList();
+
+                            // Sort
+                            filteredFolders.sort((a, b) {
+                              if (a.id == Folder.trashId) return -1;
+                              return a.order.compareTo(b.order);
+                            });
+
+                            if (filteredFolders.isEmpty) {
+                              return Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16.0),
+                                child: const Text(
+                                  'No hay álbumes disponibles',
+                                  textAlign: TextAlign.center,
+                                ),
+                              );
+                            }
+
+                            return ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: filteredFolders.length,
+                              itemBuilder: (context, index) {
+                                final folder = filteredFolders[index];
+
+                                IconData icon;
+                                Color color;
+
+                                if (folder.id == Folder.trashId) {
+                                  icon = Icons.delete;
+                                  color = Colors.red;
+                                } else {
+                                  icon = IconHelper.getIcon(folder.iconKey);
+                                  color = folder.color != null
+                                      ? Color(folder.color!)
+                                      : Colors.teal;
+                                }
+
+                                return ListTile(
+                                  leading: Icon(icon, color: color),
+                                  title: Text(folder.name),
+                                  onTap: () async {
+                                    // Perform move
+                                    final repository = ref.read(
+                                      mediaRepositoryProvider,
+                                    );
+                                    for (final mediaId in _selectedIds) {
+                                      await repository.assignFolder(
+                                        mediaId,
+                                        folder.id,
+                                        destinationVolume: selectedVolume,
+                                      );
+                                    }
+
+                                    // Refresh counts
+                                    ref.invalidate(folderCountProvider);
+                                    ref.invalidate(unorganizedMediaProvider);
+
+                                    if (context.mounted) {
+                                      Navigator.pop(context); // Close dialog
+                                      _exitSelectionMode();
+                                      _loadMedia(
+                                        refresh: true,
+                                      ); // Reload current view
+                                    }
+                                  },
+                                );
+                              },
+                            );
+                          },
+                          loading: () =>
+                              const Center(child: CircularProgressIndicator()),
+                          error: (err, _) => Text('Error: $err'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancelar'),
+                  ),
+                ],
+              );
+            },
           );
         },
       ),

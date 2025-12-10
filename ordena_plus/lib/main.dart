@@ -41,8 +41,22 @@ final _router = GoRouter(
       path: '/folder/:id',
       builder: (context, state) {
         final id = state.pathParameters['id']!;
-        final name = state.extra as String? ?? 'Carpeta';
-        return FolderGalleryScreen(folderId: id, folderName: name);
+        String name = 'Carpeta';
+        String? pathPrefix;
+
+        if (state.extra is Map<String, dynamic>) {
+          final args = state.extra as Map<String, dynamic>;
+          name = args['name'] as String? ?? 'Carpeta';
+          pathPrefix = args['pathPrefix'] as String?;
+        } else if (state.extra is String) {
+          name = state.extra as String;
+        }
+
+        return FolderGalleryScreen(
+          folderId: id,
+          folderName: name,
+          pathPrefix: pathPrefix,
+        );
       },
     ),
     GoRoute(

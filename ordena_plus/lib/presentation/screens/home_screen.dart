@@ -1,7 +1,5 @@
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:ordena_plus/domain/models/folder.dart';
@@ -23,6 +21,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _selectedIndex = 1; // Start on Home
   bool _foldersInitialized = false;
+  List<String> _storageVolumes = [];
+  String _selectedVolume = '/storage/emulated/0'; // Default to internal
 
   @override
   void initState() {
@@ -40,6 +40,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Initialize file system (requests permission)
     final folderRepository = ref.read(folderRepositoryProvider);
     await folderRepository.initializeFileSystem();
+
+    // Fetch storage volumes for filter
+    final volumes = await folderRepository.getStorageVolumes();
+    if (mounted) {
+      setState(() {
+        _storageVolumes = volumes;
+        _selectedVolume = volumes.first;
+      });
+    }
   }
 
   @override
@@ -47,7 +56,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final mediaState = ref.watch(unorganizedMediaProvider);
     final foldersState = ref.watch(foldersProvider);
     final unorganizedCountAsync = ref.watch(
-      folderCountProvider(Folder.unorganizedId),
+      folderCountProvider(
+        const FolderCountParams(folderId: Folder.unorganizedId),
+      ),
     );
     final notifier = ref.read(unorganizedMediaProvider.notifier);
 
@@ -80,7 +91,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ref.invalidate(unorganizedMediaProvider);
 
               // 3. Update counter
-              ref.invalidate(folderCountProvider(Folder.unorganizedId));
+              ref.invalidate(
+                folderCountProvider(
+                  const FolderCountParams(folderId: Folder.unorganizedId),
+                ),
+              );
             },
           ),
         ],
@@ -108,7 +123,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                  error: (_, __) => const Text('Error'),
+                  error: (_, _) => const Text('Error'),
                 ),
                 TextButton.icon(
                   onPressed: () {
@@ -212,6 +227,41 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
           const SizedBox(height: 16),
 
+          // Storage Selector (only if multiple volumes)
+          if (_storageVolumes.length > 1)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(Icons.storage, color: Colors.teal.shade600, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Almacenamiento:',
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                  const SizedBox(width: 8),
+                  DropdownButton<String>(
+                    value: _selectedVolume,
+                    underline: const SizedBox(),
+                    items: _storageVolumes.map((volume) {
+                      final label = volume.contains('emulated/0')
+                          ? 'Interno'
+                          : 'SD (${volume.split('/').last})';
+                      return DropdownMenuItem(
+                        value: volume,
+                        child: Text(label),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _selectedVolume = value);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+
           // Carousel Area
           Container(
             height: 140,
@@ -237,7 +287,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     )
                     .toList();
 
-                final carouselFolders = [trash, ...otherFolders];
+                // Filter by selected storage volume
+                final filteredFolders = otherFolders.where((f) {
+                  if (f.path == null) {
+                    return _selectedVolume.contains('emulated/0');
+                  }
+                  return f.path!.startsWith(_selectedVolume);
+                }).toList();
+
+                final carouselFolders = [trash, ...filteredFolders];
 
                 return ListView.builder(
                   scrollDirection: Axis.horizontal,
@@ -297,6 +355,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           await notifier.assignFolder(
                             currentItems.first.id,
                             folder.id,
+                            destinationVolume: _selectedVolume,
                           );
                           ref.invalidate(folderCountProvider);
                         }
@@ -306,7 +365,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (_, __) => const SizedBox(),
+              error: (_, _) => const SizedBox(),
             ),
           ),
         ],
@@ -372,14 +431,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  void _showCreateAlbumDialog(BuildContext context) {
+  void _showCreateAlbumDialog(BuildContext context) async {
+    // Get storage volumes from repository
+    final folderRepository = ref.read(folderRepositoryProvider);
+    final volumes = await folderRepository.getStorageVolumes();
+
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       builder: (context) => AlbumFormDialog(
         title: 'Nuevo Álbum',
         confirmText: 'Crear',
-        onConfirm: (name, iconKey, color) {
-          ref.read(foldersProvider.notifier).createFolder(name, iconKey, color);
+        storageVolumes: volumes,
+        onConfirm: (name, iconKey, color, storageRoot) {
+          ref
+              .read(foldersProvider.notifier)
+              .createFolder(name, iconKey, color, storageRoot);
         },
       ),
     );

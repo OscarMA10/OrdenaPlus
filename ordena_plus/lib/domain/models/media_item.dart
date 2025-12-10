@@ -8,6 +8,7 @@ class MediaItem extends Equatable {
   final MediaType type;
   final DateTime? dateCreated;
   final String? folderId;
+  final String? originalPath;
 
   const MediaItem({
     required this.id,
@@ -15,6 +16,7 @@ class MediaItem extends Equatable {
     required this.type,
     this.dateCreated,
     this.folderId,
+    this.originalPath,
   });
 
   MediaItem copyWith({
@@ -23,6 +25,7 @@ class MediaItem extends Equatable {
     MediaType? type,
     DateTime? dateCreated,
     String? folderId,
+    String? originalPath,
   }) {
     return MediaItem(
       id: id ?? this.id,
@@ -30,6 +33,7 @@ class MediaItem extends Equatable {
       type: type ?? this.type,
       dateCreated: dateCreated ?? this.dateCreated,
       folderId: folderId ?? this.folderId,
+      originalPath: originalPath ?? this.originalPath,
     );
   }
 
@@ -40,6 +44,7 @@ class MediaItem extends Equatable {
       'type': type.index,
       'dateCreated': dateCreated?.millisecondsSinceEpoch,
       'folderId': folderId,
+      'originalPath': originalPath,
     };
   }
 
@@ -52,9 +57,17 @@ class MediaItem extends Equatable {
           ? DateTime.fromMillisecondsSinceEpoch(map['dateCreated'] as int)
           : null,
       folderId: map['folderId'] as String?,
+      originalPath: map['originalPath'] as String?,
     );
   }
 
   @override
-  List<Object?> get props => [id, path, type, dateCreated, folderId];
+  List<Object?> get props => [
+    id,
+    path,
+    type,
+    dateCreated,
+    folderId,
+    originalPath,
+  ];
 }

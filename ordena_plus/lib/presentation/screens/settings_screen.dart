@@ -13,7 +13,7 @@ class SettingsScreen extends ConsumerStatefulWidget {
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   int _selectedIndex = 2;
-  String _version = "1.0.0";
+  final String _version = "1.0.0";
 
   @override
   Widget build(BuildContext context) {
@@ -163,9 +163,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'Ordena+ te ayuda a organizar tu galería moviendo tus fotos y videos a carpetas físicas en tu dispositivo.',
+                    'Ordena+ te ayuda a organizar tu galería moviendo tus fotos y videos a carpetas físicas internas dentro de los almacenamientos de tu dispositivo.',
                   ),
-                  SizedBox(height: 12),
+                  SizedBox(height: 16),
                   Text(
                     'Permisos:',
                     style: TextStyle(fontWeight: FontWeight.bold),
@@ -174,13 +174,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     'La app necesita permiso de "Gestión de todos los archivos" para poder MOVER los archivos reales. '
                     'Esto es necesario para que no ocupes espacio doble (copiando) y para que tu galería de Android refleje los cambios.',
                   ),
-                  SizedBox(height: 12),
+                  SizedBox(height: 16),
                   Text(
                     'Seguridad:',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'Cuando borras un álbum en la app, las fotos NO se borran, se mueven de vuelta a la carpeta principal ("Inicio").',
+                    'Cuando borras un álbum en la app, los archivos NO se borran, se mueven al álbum "Papelera" del almacenamiento en el que estaban situados.',
                   ),
                 ],
               ),

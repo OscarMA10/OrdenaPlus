@@ -8,6 +8,7 @@ class Folder extends Equatable {
   final String? iconPath; // Keeping for backward compatibility or custom images
   final String? iconKey; // New: Key for Material Icons (e.g., 'star', 'work')
   final int? color; // New: Color value (int)
+  final String? path; // Absolute path to this folder on storage
   final FolderType type;
   final int order;
 
@@ -17,6 +18,7 @@ class Folder extends Equatable {
     this.iconPath,
     this.iconKey,
     this.color,
+    this.path,
     this.type = FolderType.custom,
     this.order = 0,
   });
@@ -30,6 +32,7 @@ class Folder extends Equatable {
     String? iconPath,
     String? iconKey,
     int? color,
+    String? path,
     FolderType? type,
     int? order,
   }) {
@@ -39,6 +42,7 @@ class Folder extends Equatable {
       iconPath: iconPath ?? this.iconPath,
       iconKey: iconKey ?? this.iconKey,
       color: color ?? this.color,
+      path: path ?? this.path,
       type: type ?? this.type,
       order: order ?? this.order,
     );
@@ -51,6 +55,7 @@ class Folder extends Equatable {
       'iconPath': iconPath,
       'iconKey': iconKey,
       'color': color,
+      'path': path,
       'type': type.index,
       'order_index':
           order, // Note: DB column is order_index to avoid keyword conflict
@@ -64,11 +69,21 @@ class Folder extends Equatable {
       iconPath: map['iconPath'] as String?,
       iconKey: map['iconKey'] as String?,
       color: map['color'] as int?,
+      path: map['path'] as String?,
       type: FolderType.values[map['type'] as int],
       order: map['order_index'] as int? ?? 0,
     );
   }
 
   @override
-  List<Object?> get props => [id, name, iconPath, iconKey, color, type, order];
+  List<Object?> get props => [
+    id,
+    name,
+    iconPath,
+    iconKey,
+    color,
+    path,
+    type,
+    order,
+  ];
 }

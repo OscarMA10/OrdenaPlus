@@ -63,12 +63,22 @@ class MediaRepositoryImpl implements MediaRepository {
     int offset = 0,
     int limit = 1000,
     bool newestFirst = true,
+    String? pathPrefix,
   }) async {
     final db = await _dbHelper.database;
+
+    String whereClause = 'folderId = ?';
+    List<Object?> whereArgs = [folderId];
+
+    if (pathPrefix != null) {
+      whereClause += ' AND path LIKE ?';
+      whereArgs.add('$pathPrefix%');
+    }
+
     final result = await db.query(
       'media_items',
-      where: 'folderId = ?',
-      whereArgs: [folderId],
+      where: whereClause,
+      whereArgs: whereArgs,
       orderBy: newestFirst ? 'dateCreated DESC' : 'dateCreated ASC',
       limit: limit,
       offset: offset,
@@ -77,7 +87,11 @@ class MediaRepositoryImpl implements MediaRepository {
   }
 
   @override
-  Future<void> assignFolder(String mediaId, String folderId) async {
+  Future<void> assignFolder(
+    String mediaId,
+    String folderId, {
+    String? destinationVolume,
+  }) async {
     final db = await _dbHelper.database;
 
     // 1. Get current media item to find source path
@@ -99,26 +113,56 @@ class MediaRepositoryImpl implements MediaRepository {
 
     // 2. Determine destination directory
     String destDirPath;
-    const String rootPath = '/storage/emulated/0/Pictures/Ordena+';
+
+    // Determine target volume root
+    String volumeRoot;
+
+    if (destinationVolume != null) {
+      // Explicit destination (e.g. from Move Dialog)
+      // Ensure specific format if it's "emulated/0" or SD path
+      volumeRoot = destinationVolume;
+    } else {
+      // Implicit: Keep on same volume as source
+      if (currentPath.startsWith('/storage/emulated/0')) {
+        volumeRoot = '/storage/emulated/0';
+      } else {
+        // Regex for SD card: /storage/ABCD-1234
+        final match = RegExp(
+          r'^/storage/[A-Za-z0-9-]+',
+        ).firstMatch(currentPath);
+        if (match != null) {
+          volumeRoot = match.group(0)!;
+        } else {
+          volumeRoot = '/storage/emulated/0'; // Fallback
+        }
+      }
+    }
+
+    final String appRootPath = '$volumeRoot/Pictures/Ordena+';
 
     if (folderId == Folder.unorganizedId) {
-      destDirPath = rootPath;
+      // Unorganized goes to App Root on the same volume
+      destDirPath = appRootPath;
     } else if (folderId == Folder.trashId) {
-      destDirPath = '$rootPath/Papelera';
+      // Trash goes to .trashed/Papelera on the same volume (or just Papelera)
+      // Using standard Papelera folder as before
+      destDirPath = '$appRootPath/Papelera';
     } else {
-      // Custom Album: Get folder name
+      // Custom Album: Get folder path from DB (supports SD card)
       final folderResult = await db.query(
         'folders',
-        columns: ['name'],
+        columns: ['name', 'path'],
         where: 'id = ?',
         whereArgs: [folderId],
       );
       if (folderResult.isNotEmpty) {
+        final folderPath = folderResult.first['path'] as String?;
         final folderName = folderResult.first['name'] as String;
-        destDirPath = '$rootPath/$folderName';
+        // Use explicit path if available, otherwise construct from app root
+        destDirPath = folderPath ?? '$appRootPath/$folderName';
       } else {
         // Folder not found? Fallback to root
-        destDirPath = rootPath;
+        destDirPath = appRootPath;
       }
     }
 
@@ -244,6 +288,7 @@ class MediaRepositoryImpl implements MediaRepository {
               : MediaType.photo,
           dateCreated: asset.createDateTime,
           folderId: Folder.unorganizedId,
+          originalPath: file.path,
         );
 
         batch.insert(
@@ -341,6 +386,7 @@ class MediaRepositoryImpl implements MediaRepository {
               : MediaType.photo,
           dateCreated: asset.createDateTime,
           folderId: Folder.unorganizedId,
+          originalPath: file.path,
         );
 
         batch.insert(
@@ -359,11 +405,132 @@ class MediaRepositoryImpl implements MediaRepository {
   }
 
   @override
-  Future<int> getMediaCountInFolder(String folderId) async {
+  Future<void> restoreMedia(
+    String mediaId, {
+    String? targetPath,
+    String? targetFolderId,
+  }) async {
     final db = await _dbHelper.database;
+    final mediaResult = await db.query(
+      'media_items',
+      columns: ['path', 'originalPath'],
+      where: 'id = ?',
+      whereArgs: [mediaId],
+    );
+
+    if (mediaResult.isEmpty) return;
+    final String currentPath = mediaResult.first['path'] as String;
+    final String? originalPath = mediaResult.first['originalPath'] as String?;
+    final File sourceFile = File(currentPath);
+
+    if (!await sourceFile.exists()) {
+      return;
+    }
+
+    // Determine target path logic
+    String effectiveTargetPath;
+
+    if (originalPath != null &&
+        originalPath.isNotEmpty &&
+        originalPath != currentPath) {
+      // Priority 1: Use persistent original path
+      effectiveTargetPath = originalPath;
+    } else if (targetPath != null &&
+        targetPath.isNotEmpty &&
+        targetPath != currentPath) {
+      // Priority 2: Use implicit target path (from Undo)
+      effectiveTargetPath = targetPath;
+    } else {
+      // Priority 3: Fallback (Safe Restore)
+      // If we are here, we don't know where to go, or "original" == "current" (legacy).
+      // We MUST move it out of the current folder to proper "Unorganized" location.
+      // Default: VolumeRoot/Pictures/Ordena+/Restored/filename.jpg
+
+      // 1. Determine Volume Root
+      String volumeRoot;
+      if (currentPath.startsWith('/storage/emulated/0')) {
+        volumeRoot = '/storage/emulated/0';
+      } else {
+        final match = RegExp(
+          r'^/storage/[A-Za-z0-9-]+',
+        ).firstMatch(currentPath);
+        volumeRoot = match?.group(0) ?? '/storage/emulated/0';
+      }
+
+      final restoreDir = Directory('$volumeRoot/Pictures/Ordena+/Restored');
+      if (!await restoreDir.exists()) {
+        await restoreDir.create(recursive: true);
+      }
+
+      String fileName = currentPath.split('/').last;
+      effectiveTargetPath = '${restoreDir.path}/$fileName';
+    }
+
+    // Ensure target dir exists
+    final targetDir = Directory(File(effectiveTargetPath).parent.path);
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
+
+    String finalPath = effectiveTargetPath;
+
+    // Collision check at target
+    if (await File(finalPath).exists() && finalPath != currentPath) {
+      // Suffix
+      String fileName = finalPath.split('/').last;
+      String dir = finalPath.substring(0, finalPath.lastIndexOf('/'));
+      String name = fileName.substring(0, fileName.lastIndexOf('.'));
+      String ext = fileName.substring(fileName.lastIndexOf('.'));
+      int counter = 1;
+      while (await File(finalPath).exists()) {
+        finalPath = '$dir/${name}_$counter$ext';
+        counter++;
+      }
+    }
+
+    if (finalPath != currentPath) {
+      try {
+        await sourceFile.rename(finalPath);
+      } catch (e) {
+        // Fallback for cross-volume or permission issues
+        try {
+          await sourceFile.copy(finalPath);
+          await sourceFile.delete();
+        } catch (e2) {
+          debugPrint('Failed to restore file: $e2');
+          // Update DB to reflect failure? Or keep old path?
+          // If copy failed, we shouldn't update DB to new path.
+          return;
+        }
+      }
+    }
+
+    await db.update(
+      'media_items',
+      {'path': finalPath, 'folderId': targetFolderId ?? Folder.unorganizedId},
+      where: 'id = ?',
+      whereArgs: [mediaId],
+    );
+  }
+
+  @override
+  Future<int> getMediaCountInFolder(
+    String folderId, {
+    String? pathPrefix,
+  }) async {
+    final db = await _dbHelper.database;
+
+    String whereClause = 'folderId = ?';
+    List<Object?> whereArgs = [folderId];
+
+    if (pathPrefix != null) {
+      whereClause += ' AND path LIKE ?';
+      whereArgs.add('$pathPrefix%');
+    }
+
     final result = await db.rawQuery(
-      'SELECT COUNT(*) as count FROM media_items WHERE folderId = ?',
-      [folderId],
+      'SELECT COUNT(*) as count FROM media_items WHERE $whereClause',
+      whereArgs,
     );
     return Sqflite.firstIntValue(result) ?? 0;
   }
@@ -381,6 +548,28 @@ class MediaRepositoryImpl implements MediaRepository {
       return MediaItem.fromMap(results.first);
     }
     return null;
+  }
+
+  @override
+  Future<void> insertMediaItem(MediaItem item) async {
+    final db = await _dbHelper.database;
+    await db.insert(
+      'media_items',
+      item.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+  }
+
+  @override
+  Future<bool> existsByPath(String path) async {
+    final db = await _dbHelper.database;
+    final result = await db.query(
+      'media_items',
+      where: 'path = ?',
+      whereArgs: [path],
+      limit: 1,
+    );
+    return result.isNotEmpty;
   }
 
   @override

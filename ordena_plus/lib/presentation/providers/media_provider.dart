@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:ordena_plus/domain/models/media_item.dart';
-import 'package:ordena_plus/domain/models/folder.dart';
+
 import 'package:ordena_plus/domain/repositories/media_repository.dart';
 import 'package:ordena_plus/presentation/providers/dependency_injection.dart';
 
@@ -70,7 +70,11 @@ class UnorganizedMediaNotifier
 
   bool get isNewestFirst => _newestFirst;
 
-  Future<void> assignFolder(String mediaId, String folderId) async {
+  Future<void> assignFolder(
+    String mediaId,
+    String folderId, {
+    String? destinationVolume,
+  }) async {
     try {
       final currentItems = state.value ?? [];
       final itemIndex = currentItems.indexWhere((i) => i.id == mediaId);
@@ -93,7 +97,11 @@ class UnorganizedMediaNotifier
         ),
       );
 
-      await _repository.assignFolder(mediaId, folderId);
+      await _repository.assignFolder(
+        mediaId,
+        folderId,
+        destinationVolume: destinationVolume,
+      );
     } catch (e, st) {
       state = AsyncValue.error(e, st);
       loadMedia(); // Reload on error
@@ -106,10 +114,11 @@ class UnorganizedMediaNotifier
     final lastAction = _history.removeLast();
     try {
       if (lastAction.actionType == ActionType.assign) {
-        // Revert folder assignment
-        await _repository.assignFolder(
+        // Revert folder assignment using usage path
+        await _repository.restoreMedia(
           lastAction.item.id,
-          Folder.unorganizedId,
+          targetPath: lastAction.item.path,
+          targetFolderId: lastAction.item.folderId,
         );
 
         // Fetch updated item to get the correct path (in case of rename/move)

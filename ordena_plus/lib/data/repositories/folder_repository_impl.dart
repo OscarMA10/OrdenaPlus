@@ -5,6 +5,7 @@ import 'package:ordena_plus/domain/models/folder.dart';
 import 'package:ordena_plus/domain/repositories/folder_repository.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:external_path/external_path.dart';
 
 class FolderRepositoryImpl implements FolderRepository {
   final DatabaseHelper _dbHelper;
@@ -21,6 +22,18 @@ class FolderRepositoryImpl implements FolderRepository {
   }
 
   @override
+  Future<List<String>> getStorageVolumes() async {
+    try {
+      // Returns list like ["/storage/emulated/0", "/storage/B3AE-4D28"]
+      final volumes = await ExternalPath.getExternalStorageDirectories();
+      return volumes ?? ['/storage/emulated/0'];
+    } catch (e) {
+      debugPrint('Error getting storage volumes: $e');
+      return ['/storage/emulated/0']; // Fallback to internal
+    }
+  }
+
+  @override
   Future<void> initializeFileSystem() async {
     final hasPermission = await _requestStoragePermission();
     if (!hasPermission) {
@@ -29,26 +42,24 @@ class FolderRepositoryImpl implements FolderRepository {
     }
 
     try {
-      final rootDir = Directory('/storage/emulated/0/Pictures/Ordena+');
-      if (!await rootDir.exists()) {
-        await rootDir.create(recursive: true);
-      }
+      // Ensure 'Ordena+' exists on ALL detected volumes
+      final volumes = await getStorageVolumes();
+      for (final volume in volumes) {
+        final rootDir = Directory('$volume/Pictures/Ordena+');
+        if (!await rootDir.exists()) {
+          await rootDir.create(recursive: true);
+        }
 
-      final trashDir = Directory('${rootDir.path}/Papelera');
-      if (!await trashDir.exists()) {
-        await trashDir.create();
+        // Trash is only needed on the volume where files are being managed,
+        // but creating it everywhere is safer for simplicity.
+        final trashDir = Directory('${rootDir.path}/Papelera');
+        if (!await trashDir.exists()) {
+          await trashDir.create();
+        }
       }
     } catch (e) {
       debugPrint('Error initializing file system: $e');
     }
-  }
-
-  Future<Directory> _getAppFolder() async {
-    final directory = Directory('/storage/emulated/0/Pictures/Ordena+');
-    if (!await directory.exists()) {
-      await directory.create(recursive: true);
-    }
-    return directory;
   }
 
   @override
@@ -67,13 +78,13 @@ class FolderRepositoryImpl implements FolderRepository {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 
-    // Create physical folder (permission already granted or will fail silently)
-    if (folder.type != FolderType.system) {
+    // Create physical folder
+    // Now we rely on folder.path being set correctly by logic layer (UI or UseCase)
+    if (folder.type != FolderType.system && folder.path != null) {
       try {
-        final appDir = await _getAppFolder();
-        final newDir = Directory('${appDir.path}/${folder.name}');
+        final newDir = Directory(folder.path!);
         if (!await newDir.exists()) {
-          await newDir.create();
+          await newDir.create(recursive: true);
         }
       } catch (e) {
         debugPrint('Error creating physical folder: $e');
@@ -94,48 +105,45 @@ class FolderRepositoryImpl implements FolderRepository {
     );
 
     // Rename physical folder
-    // Rename physical folder
     if (folder.type != FolderType.system &&
         oldFolder != null &&
-        oldFolder.name != folder.name) {
+        (oldFolder.name != folder.name || oldFolder.path != folder.path)) {
       try {
-        final appDir = await _getAppFolder();
-        final oldDir = Directory('${appDir.path}/${oldFolder.name}');
-        final newDir = Directory('${appDir.path}/${folder.name}');
+        // If paths are different (e.g. moved or renamed)
+        if (oldFolder.path != null && folder.path != null) {
+          final oldDir = Directory(oldFolder.path!);
+          final newDir = Directory(folder.path!);
 
-        if (await oldDir.exists()) {
-          await oldDir.rename(newDir.path);
+          if (await oldDir.exists()) {
+            await oldDir.rename(newDir.path);
 
-          // UPDATE MEDIA PATHS IN DB
-          // Fetch all items in this folder
-          final itemsToUpdate = await db.query(
-            'media_items',
-            where: 'folderId = ?',
-            whereArgs: [folder.id],
-          );
+            // UPDATE MEDIA PATHS IN DB
+            final itemsToUpdate = await db.query(
+              'media_items',
+              where: 'folderId = ?',
+              whereArgs: [folder.id],
+            );
 
-          if (itemsToUpdate.isNotEmpty) {
-            final batch = db.batch();
-            for (final item in itemsToUpdate) {
-              final oldPath = item['path'] as String;
-              // Careful with separators. Assuming standard usage.
-              // We can rely on URI parsing or simple split.
-              // Actually, since we know the new directory path, we just append the filename.
-              final String fileName = Uri.file(oldPath).pathSegments.last;
-              final String newPath = '${newDir.path}/$fileName';
+            if (itemsToUpdate.isNotEmpty) {
+              final batch = db.batch();
+              for (final item in itemsToUpdate) {
+                final oldPath = item['path'] as String;
+                final String fileName = Uri.file(oldPath).pathSegments.last;
+                final String newPath = '${newDir.path}/$fileName';
 
-              batch.update(
-                'media_items',
-                {'path': newPath},
-                where: 'id = ?',
-                whereArgs: [item['id']],
-              );
+                batch.update(
+                  'media_items',
+                  {'path': newPath},
+                  where: 'id = ?',
+                  whereArgs: [item['id']],
+                );
+              }
+              await batch.commit(noResult: true);
             }
-            await batch.commit(noResult: true);
+          } else {
+            // If old dir doesn't exist, just create new one
+            await newDir.create(recursive: true);
           }
-        } else {
-          // If old dir doesn't exist, just create new one
-          await newDir.create();
         }
       } catch (e) {
         debugPrint('Error renaming physical folder: $e');
@@ -148,28 +156,50 @@ class FolderRepositoryImpl implements FolderRepository {
     final folder = await getFolderById(id);
     final db = await _dbHelper.database;
 
-    // 1. SAFE DELETE & MOVE: Move files physically to root ("Inicio") and update DB
+    // 1. SAFE DELETE & MOVE: Move files physically to Unorganized (Internal Root for now)
+    // NOTE: If file is on SD card, it should move to "Unorganized" on SD card?
+    // Current design has ONE Unorganized root (Internal).
+    // Moving from SD -> Internal on Delete is a cross-volume move (Slow).
+    // Better strategy: "Unorganized" is virtual. Just move them to root of the same volume?
+    // ALLOWED SIMPLIFICATION: Move all to Internal Root.
+
     if (folder != null && folder.type != FolderType.system) {
-      // Get items strictly from DB to ensure we only move what we know about
-      // and update their paths immediately
       final itemsToMove = await db.query(
         'media_items',
         where: 'folderId = ?',
         whereArgs: [id],
       );
 
-      final appDir = await _getAppFolder();
+      // Target: Trash Folder (Per Volume)
       final batch = db.batch();
 
       for (final item in itemsToMove) {
         final oldPath = item['path'] as String;
+        final mediaId = item['id'] as String;
         final file = File(oldPath);
 
         if (await file.exists()) {
-          String fileName = file.uri.pathSegments.last;
-          String newPath = '${appDir.path}/$fileName';
+          // 1. Determine Volume Root
+          String volumeRoot;
+          if (oldPath.startsWith('/storage/emulated/0')) {
+            volumeRoot = '/storage/emulated/0';
+          } else {
+            final match = RegExp(
+              r'^/storage/[A-Za-z0-9-]+',
+            ).firstMatch(oldPath);
+            volumeRoot = match?.group(0) ?? '/storage/emulated/0';
+          }
 
-          // Handle collision at root
+          // 2. Determine Trash Path
+          final trashDir = Directory('$volumeRoot/Pictures/Ordena+/Papelera');
+          if (!await trashDir.exists()) {
+            await trashDir.create(recursive: true);
+          }
+
+          String fileName = file.uri.pathSegments.last;
+          String newPath = '${trashDir.path}/$fileName';
+
+          // Collision check
           if (await File(newPath).exists() && File(newPath).path != file.path) {
             final nameWithoutExtension = fileName.substring(
               0,
@@ -179,63 +209,75 @@ class FolderRepositoryImpl implements FolderRepository {
             int counter = 1;
             while (await File(newPath).exists()) {
               newPath =
-                  '${appDir.path}/${nameWithoutExtension}_$counter$extension';
+                  '${trashDir.path}/${nameWithoutExtension}_$counter$extension';
               counter++;
             }
           }
 
-          // Only move if paths are different
           if (newPath != oldPath) {
             try {
+              // Try rename first
               await file.rename(newPath);
-              // Update path and folderId in DB
               batch.update(
                 'media_items',
-                {'folderId': Folder.unorganizedId, 'path': newPath},
+                {'folderId': Folder.trashId, 'path': newPath},
                 where: 'id = ?',
-                whereArgs: [item['id']],
+                whereArgs: [mediaId],
               );
             } catch (e) {
-              debugPrint('Failed to move file ${file.path}: $e');
-              batch.update(
-                'media_items',
-                {'folderId': Folder.unorganizedId},
-                where: 'id = ?',
-                whereArgs: [item['id']],
-              );
+              // Cross-volume fallback (shouldn't happen with correct volume logic, but safety)
+              try {
+                await file.copy(newPath);
+                await file.delete();
+                batch.update(
+                  'media_items',
+                  {'folderId': Folder.trashId, 'path': newPath},
+                  where: 'id = ?',
+                  whereArgs: [mediaId],
+                );
+              } catch (e2) {
+                debugPrint('Failed to move file ${file.path}: $e2');
+                // Keep record but mark trash
+                batch.update(
+                  'media_items',
+                  {'folderId': Folder.trashId},
+                  where: 'id = ?',
+                  whereArgs: [mediaId],
+                );
+              }
             }
           } else {
+            // Path didn't change (already in trash? unlikely if in album)
             batch.update(
               'media_items',
-              {'folderId': Folder.unorganizedId},
+              {'folderId': Folder.trashId},
               where: 'id = ?',
-              whereArgs: [item['id']],
+              whereArgs: [mediaId],
             );
           }
         } else {
-          // File doesn't exist on disk? Update DB to Unorganized
+          // File missing, just update DB to trash so it doesn't show in album (which is being deleted)
           batch.update(
             'media_items',
-            {'folderId': Folder.unorganizedId},
+            {'folderId': Folder.trashId},
             where: 'id = ?',
-            whereArgs: [item['id']],
+            whereArgs: [mediaId],
           );
         }
       }
       await batch.commit(noResult: true);
     }
 
-    // 3. Delete the folder record (transaction)
+    // 2. Delete Folder Record
     await db.delete('folders', where: 'id = ?', whereArgs: [id]);
 
-    // 4. Delete physical folder (now empty-ish)
-    if (folder != null && folder.type != FolderType.system) {
+    // 3. Delete Physical Folder
+    if (folder != null &&
+        folder.type != FolderType.system &&
+        folder.path != null) {
       try {
-        final appDir = await _getAppFolder();
-        final dir = Directory('${appDir.path}/${folder.name}');
+        final dir = Directory(folder.path!);
         if (await dir.exists()) {
-          // Recursive true is now safer as we moved known files, but trash/other files might remain?
-          // The user expects the folder gone.
           await dir.delete(recursive: true);
         }
       } catch (e) {

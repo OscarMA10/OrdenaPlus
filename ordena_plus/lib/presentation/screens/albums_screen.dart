@@ -7,6 +7,7 @@ import 'package:ordena_plus/presentation/providers/folder_count_provider.dart';
 import 'package:ordena_plus/presentation/providers/media_provider.dart';
 import 'package:ordena_plus/presentation/widgets/album_form_dialog.dart';
 import 'package:ordena_plus/presentation/utils/icon_helper.dart';
+import 'package:ordena_plus/presentation/providers/dependency_injection.dart';
 
 class AlbumsScreen extends ConsumerStatefulWidget {
   const AlbumsScreen({super.key});
@@ -19,6 +20,25 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
   int _selectedIndex = 0;
   bool _isSelectionMode = false;
   final Set<String> _selectedIds = {};
+  List<String> _storageVolumes = [];
+  String _selectedVolume = '/storage/emulated/0';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStorageVolumes();
+  }
+
+  Future<void> _loadStorageVolumes() async {
+    final folderRepository = ref.read(folderRepositoryProvider);
+    final volumes = await folderRepository.getStorageVolumes();
+    if (mounted) {
+      setState(() {
+        _storageVolumes = volumes;
+        _selectedVolume = volumes.first;
+      });
+    }
+  }
 
   void _toggleSelection(String id) {
     setState(() {
@@ -56,7 +76,7 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
       builder: (context) => AlertDialog(
         title: Text('Eliminar ${_selectedIds.length} álbumes'),
         content: const Text(
-          '¿Estás seguro? Los archivos dentro de estos álbumes se moverán a "Inicio".',
+          '¿Estás seguro? Los archivos dentro de estos álbumes se moverán a "Papelera".',
         ),
         actions: [
           TextButton(
@@ -73,7 +93,7 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
               ref.invalidate(folderCountProvider);
               ref.invalidate(unorganizedMediaProvider);
 
-              if (mounted) {
+              if (context.mounted) {
                 Navigator.pop(context);
                 _exitSelectionMode();
               }
@@ -138,68 +158,138 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
               )
               .toList();
 
+          // Filter by selected storage volume
+          final filteredFolders = otherFolders.where((f) {
+            if (f.path == null) return _selectedVolume.contains('emulated/0');
+            return f.path!.startsWith(_selectedVolume);
+          }).toList();
+
           // Unorganized is hidden from this view as it is the Home screen
-          final sortedFolders = [trash, ...otherFolders];
+          final sortedFolders = [trash, ...filteredFolders];
 
-          return GridView.builder(
-            padding: const EdgeInsets.all(16),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.2,
-            ),
-            itemCount: sortedFolders.length,
-            itemBuilder: (context, index) {
-              final folder = sortedFolders[index];
-              final isSelected = _selectedIds.contains(folder.id);
-
-              return GestureDetector(
-                onLongPress: () => _enterSelectionMode(folder.id),
-                onTap: () {
-                  if (_isSelectionMode) {
-                    // Prevent selecting system folders
-                    if (folder.id != Folder.unorganizedId &&
-                        folder.id != Folder.trashId) {
-                      _toggleSelection(folder.id);
-                    }
-                  } else {
-                    context.push('/folder/${folder.id}', extra: folder.name);
-                  }
-                },
-                child: Stack(
-                  children: [
-                    _FolderCard(folder: folder),
-                    if (_isSelectionMode &&
-                        folder.id != Folder.unorganizedId &&
-                        folder.id != Folder.trashId)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? Colors.teal
-                                : Colors.grey.withAlpha(100),
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 2),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: Icon(
-                              Icons.check,
-                              size: 16,
-                              color: isSelected
-                                  ? Colors.white
-                                  : Colors.transparent,
-                            ),
-                          ),
-                        ),
+          return Column(
+            children: [
+              // Storage Selector (only if multiple volumes)
+              if (_storageVolumes.length > 1)
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.storage,
+                        color: Colors.teal.shade600,
+                        size: 20,
                       ),
-                  ],
+                      const SizedBox(width: 8),
+                      Text(
+                        'Almacenamiento:',
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: _selectedVolume,
+                        underline: const SizedBox(),
+                        items: _storageVolumes.map((volume) {
+                          final label = volume.contains('emulated/0')
+                              ? 'Interno'
+                              : 'SD (${volume.split('/').last})';
+                          return DropdownMenuItem(
+                            value: volume,
+                            child: Text(label),
+                          );
+                        }).toList(),
+                        onChanged: (value) {
+                          if (value != null) {
+                            setState(() => _selectedVolume = value);
+                          }
+                        },
+                      ),
+                    ],
+                  ),
                 ),
-              );
-            },
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(16),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    childAspectRatio: 1.2,
+                  ),
+                  itemCount: sortedFolders.length,
+                  itemBuilder: (context, index) {
+                    final folder = sortedFolders[index];
+                    final isSelected = _selectedIds.contains(folder.id);
+
+                    return GestureDetector(
+                      onLongPress: () => _enterSelectionMode(folder.id),
+                      onTap: () {
+                        if (_isSelectionMode) {
+                          // Prevent selecting system folders
+                          if (folder.id != Folder.unorganizedId &&
+                              folder.id != Folder.trashId) {
+                            _toggleSelection(folder.id);
+                          }
+                        } else {
+                          Object extra = folder.name;
+                          // If accessing Trash, pass the selected volume as prefix
+                          if (folder.id == Folder.trashId) {
+                            extra = {
+                              'name': folder.name,
+                              'pathPrefix': _selectedVolume,
+                            };
+                          }
+
+                          context.push('/folder/${folder.id}', extra: extra);
+                        }
+                      },
+                      child: Stack(
+                        children: [
+                          _FolderCard(
+                            folder: folder,
+                            pathPrefix: folder.id == Folder.trashId
+                                ? _selectedVolume
+                                : null,
+                          ),
+                          if (_isSelectionMode &&
+                              folder.id != Folder.unorganizedId &&
+                              folder.id != Folder.trashId)
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? Colors.teal
+                                      : Colors.grey.withAlpha(100),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(4),
+                                  child: Icon(
+                                    Icons.check,
+                                    size: 16,
+                                    color: isSelected
+                                        ? Colors.white
+                                        : Colors.transparent,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -237,14 +327,22 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
     );
   }
 
-  void _showCreateAlbumDialog(BuildContext context) {
+  void _showCreateAlbumDialog(BuildContext context) async {
+    final folderRepository = ref.read(folderRepositoryProvider);
+    final volumes = await folderRepository.getStorageVolumes();
+
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       builder: (context) => AlbumFormDialog(
         title: 'Nuevo Álbum',
         confirmText: 'Crear',
-        onConfirm: (name, iconKey, color) {
-          ref.read(foldersProvider.notifier).createFolder(name, iconKey, color);
+        storageVolumes: volumes,
+        onConfirm: (name, iconKey, color, storageRoot) {
+          ref
+              .read(foldersProvider.notifier)
+              .createFolder(name, iconKey, color, storageRoot);
         },
       ),
     );
@@ -253,12 +351,17 @@ class _AlbumsScreenState extends ConsumerState<AlbumsScreen> {
 
 class _FolderCard extends ConsumerWidget {
   final Folder folder;
+  final String? pathPrefix;
 
-  const _FolderCard({required this.folder});
+  const _FolderCard({required this.folder, this.pathPrefix});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final countAsync = ref.watch(folderCountProvider(folder.id));
+    final countAsync = ref.watch(
+      folderCountProvider(
+        FolderCountParams(folderId: folder.id, pathPrefix: pathPrefix),
+      ),
+    );
 
     IconData icon;
     Color color;
@@ -319,7 +422,7 @@ class _FolderCard extends ConsumerWidget {
               height: 10,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
-            error: (_, __) => Text(
+            error: (_, _) => Text(
               'Error',
               style: TextStyle(fontSize: 12, color: Colors.red.shade300),
             ),
