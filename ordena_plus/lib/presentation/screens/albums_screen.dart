@@ -616,7 +616,7 @@ class _FolderListTile extends ConsumerWidget {
       subtitle: countAsync.when(
         data: (count) => Text('$count archivos'),
         loading: () => const Text('Calculando...'),
-        error: (_, __) => const Text('Error'),
+        error: (_, _) => const Text('Error'),
       ),
       trailing: trailing,
     );

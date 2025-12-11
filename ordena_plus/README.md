@@ -1,16 +1,44 @@
-# ordena_plus
+# Ordena+
 
-A new Flutter project.
+Este directorio contiene el código fuente Flutter de Ordena+.
 
-## Getting Started
+## 🛠️ Configuración y Ejecución
 
-This project is a starting point for a Flutter application.
+### Requisitos Previos
 
-A few resources to get you started if this is your first Flutter project:
+- Flutter SDK (Stable Channel)
+- Android Studio / VS Code
+- Dispositivo Android o Emulador (API 21+)
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+### Instalación de Dependencias
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Ejecuta el siguiente comando en este directorio:
+
+```bash
+flutter pub get
+```
+
+### Ejecutar la App
+
+Para depurar en un dispositivo conectado:
+
+```bash
+flutter run
+```
+
+Para compilar un APK de release:
+
+```bash
+flutter build apk --release
+```
+
+## 🏗️ Estructura de Directorios
+
+- `lib/domain`: Modelos, Repositorios (Interfaces) y Lógica de Negocio.
+- `lib/data`: Implementación de Repositorios, Servicios (Database, Cache).
+- `lib/presentation`: UI (Screens, Widgets) y State Management (Providers/Notifiers).
+- `lib/main.dart`: Punto de entrada, configuración de rutas (GoRouter) y temas.
+
+## 🔑 Permisos
+
+La app requiere permisos de almacenamiento (`MANAGE_EXTERNAL_STORAGE` en Android 11+) para gestionar archivos y moverlos entre carpetas y tarjetas SD. Estos se solicitan en tiempo de ejecución.

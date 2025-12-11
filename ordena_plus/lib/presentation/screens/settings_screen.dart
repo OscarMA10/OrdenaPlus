@@ -101,7 +101,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       trailing: Switch(
         value: !isGrid,
         onChanged: (val) => notifier.setAlbumsGrid(!val),
-        activeColor: Colors.teal,
       ),
     );
   }

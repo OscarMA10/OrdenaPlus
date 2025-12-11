@@ -1,29 +1,41 @@
 # Ordena+ 📁📸
 
-Ordena+ es una aplicación móvil para Android/iOS diseñada para **clasificar fotos y vídeos de forma rápida y visual** mediante un sistema de arrastrar y soltar en una ruleta de carpetas.
+Ordena+ es una aplicación móvil Android diseñada para **clasificar fotos y vídeos de forma rápida y visual** mediante un sistema eficiente de álbumes y "Seleccionar y Mover".
 
-## 🚀 Características Principales
+## 🚀 Características
 
-- Detección automática de fotos/vídeos nuevos.
-- Indexación incremental y caché de miniaturas.
-- Clasificación rápida mediante ruleta circular (drag & drop).
-- Carpetas predeterminadas: Archivos sin organizar, Papelera, Fotos, Vídeos.
-- Acciones: Omitir, Deshacer, Ampliar/Reproducir, Mover a SD (Android).
-- Crear/editar/eliminar carpetas personalizadas.
-- Modo oscuro y personalización de interfaz y animaciones.
+- **Organización Visual**: Selecciona tus fotos y muévelas a cualquier álbum con un par de toques.
+- **Gestión Inteligente**:
+  - Detección automática de archivos.
+  - Indexación rápida con caché de miniaturas optimizada.
+  - Soporte para Almacenamiento Interno y Tarjetas SD.
+- **Visualización Potente**:
+  - Vista de Galería fluida (configurable).
+  - Vista de Álbumes en Cuadrícula o Lista (configurable).
+  - Búsqueda de Álbumes.
+  - Reproductor de video y zoom de imágenes integrado.
+- **Herramientas**:
+  - Selección múltiple y eliminación por lotes.
+  - Papelera de reciclaje con opción de borrado permanente.
+  - Personalización de vistas.
 
-## ⚙️ Stack Técnico
+## ⚙️ Arquitectura y Stack
 
-- Flutter (stable)
-- State management: Riverpod / Provider / Bloc (opcional)
-- DB local: `sqflite` o `sembast`
-- Plugins principales: `photo_manager`, `permission_handler`, `path_provider`, `file_picker`, `storage_access_framework` (Android), `video_player`
+El proyecto utiliza una arquitectura sólida y mantenible:
 
-## 📝 Notas Importantes
+- **Framework**: Flutter (Dart).
+- **Gestión de Estado**: Riverpod 2.0 (Code Generation + Providers).
+- **Base de Datos Local**: SQFLite (persistencia de metadatos de medios).
+- **Navegación**: GoRouter (basada en URLs/paginación).
+- **Acceso a Medios**:
+  - `photo_manager`: Acceso nativo optimizado a la galería.
+  - `external_path`: Gestión de rutas de almacenamiento en Android.
+  - `sqflite`: Caché local para velocidad extrema.
 
-- En Android soportamos mover archivos a SD usando SAF; en iOS los cambios se hacen mediante PhotoKit (limitaciones nativas).
-- Permisos solicitados "just-in-time".
+## 📂 Estructura del Proyecto
 
-## 📄 Licencia
+El código fuente de la aplicación se encuentra en el directorio `ordena_plus/`.
 
-MIT License
+---
+
+© 2025 Ordena+ Team. MIT License.
