@@ -30,6 +30,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: ListView(
         children: [
           _buildSectionHeader('Visualización'),
+          _buildAlbumsViewOption(settings.isAlbumsGrid, notifier),
           _buildGridOption(settings.gridColumns, notifier),
 
           _buildSectionHeader('Información y Contacto'),
@@ -92,13 +93,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  Widget _buildAlbumsViewOption(bool isGrid, SettingsNotifier notifier) {
+    return ListTile(
+      leading: const Icon(Icons.view_agenda),
+      title: const Text('Vista de álbumes'),
+      subtitle: Text(isGrid ? 'Cuadrícula' : 'Lista'),
+      trailing: Switch(
+        value: !isGrid,
+        onChanged: (val) => notifier.setAlbumsGrid(!val),
+        activeColor: Colors.teal,
+      ),
+    );
+  }
+
   Widget _buildGridOption(int columns, SettingsNotifier notifier) {
     return Column(
       children: [
         ListTile(
           leading: const Icon(Icons.grid_view),
-          title: const Text('Tamaño de cuadrícula'),
-          subtitle: Text('$columns columnas'),
+          title: const Text('Archivos por fila'),
+          subtitle: Text('$columns archivos'),
         ),
         Slider(
           value: columns.toDouble(),
@@ -117,13 +131,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _buildContactOption() {
     return ListTile(
       leading: const Icon(Icons.email),
-      title: const Text('Contactar soporte'),
+      title: const Text('Contacto'),
       subtitle: const Text('oscarmedinaamat@gmail.com'),
       onTap: () async {
         final Uri emailLaunchUri = Uri(
           scheme: 'mailto',
           path: 'oscarmedinaamat@gmail.com',
-          query: 'subject=Soporte Ordena+',
+          query: 'subject=Ordena+',
         );
         try {
           if (await canLaunchUrl(emailLaunchUri)) {
@@ -147,12 +161,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget _buildInfoOption() {
     return ListTile(
       leading: const Icon(Icons.info_outline),
-      title: const Text('Sobre Ordena+ y permisos'),
+      title: const Text('Sobre Ordena+'),
       onTap: () {
         showDialog(
           context: context,
           builder: (context) => AlertDialog(
-            title: const Text('Información importante'),
+            title: const Text('Información Importante'),
             content: SingleChildScrollView(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -171,8 +185,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'La app necesita permiso de "Gestión de todos los archivos" para poder MOVER los archivos reales. '
-                    'Esto es necesario para que no ocupes espacio doble (copiando) y para que tu galería de Android refleje los cambios.',
+                    'La app necesita permiso de "Gestión de todos los archivos" para poder mover y eliminar los archivos reales. '
+                    'Esto es necesario para que no ocupes espacio doble (copiando) y para que tu galería refleje los cambios.',
                   ),
                   SizedBox(height: 16),
                   Text(
@@ -180,7 +194,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                   Text(
-                    'Cuando borras un álbum en la app, los archivos NO se borran, se mueven al álbum "Papelera" del almacenamiento en el que estaban situados.',
+                    'Cuando borras un álbum en la app, los archivos no se borran, se mueven al álbum "Papelera" del almacenamiento en el que estaban situados. '
+                    'Para eliminar archivos permanentemente, debes hacerlo desde el álbum "Papelera".',
                   ),
                 ],
               ),

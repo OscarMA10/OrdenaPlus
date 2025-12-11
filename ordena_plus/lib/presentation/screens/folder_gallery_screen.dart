@@ -35,10 +35,7 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
   final ScrollController _scrollController = ScrollController();
   List<MediaItem> _mediaItems = [];
   bool _isLoading = true;
-  bool _isLoadingMore = false;
-  bool _hasMore = true;
-  int _currentOffset = 0;
-  static const int _pageSize = 50; // Load 50 at a time for performance
+  // Pagination removed for performance (Load All)
 
   String _currentFolderName = '';
 
@@ -56,7 +53,7 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
     super.initState();
     _currentFolderName = widget.folderName;
     _loadMedia(refresh: true);
-    _scrollController.addListener(_onScroll);
+    // _scrollController.addListener(_onScroll); // Removed pagination listener
     _fetchStorageVolumes();
   }
 
@@ -80,61 +77,34 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
     super.dispose();
   }
 
-  void _onScroll() {
-    if (_scrollController.position.pixels >=
-            _scrollController.position.maxScrollExtent - 200 &&
-        !_isLoadingMore &&
-        _hasMore) {
-      _loadMedia();
-    }
-  }
-
   Future<void> _loadMedia({bool refresh = false}) async {
-    if (refresh) {
-      setState(() {
-        _isLoading = true;
+    setState(() {
+      _isLoading = true;
+      if (refresh) {
         _mediaItems = [];
-        _currentOffset = 0;
-        _hasMore = true;
-      });
-    } else {
-      setState(() {
-        _isLoadingMore = true;
-      });
-    }
+      }
+    });
 
     try {
       final repository = ref.read(mediaRepositoryProvider);
       final items = await repository.getMediaInFolder(
         widget.folderId,
-        offset: _currentOffset,
-        limit: _pageSize,
+        offset: 0,
+        limit: 50000, // Load all (up to 50k)
         newestFirst: _newestFirst,
         pathPrefix: widget.pathPrefix,
       );
 
       if (mounted) {
         setState(() {
-          if (items.length < _pageSize) {
-            _hasMore = false;
-          }
-
-          if (refresh) {
-            _mediaItems = items;
-          } else {
-            _mediaItems.addAll(items);
-          }
-
-          _currentOffset += items.length;
+          _mediaItems = items;
           _isLoading = false;
-          _isLoadingMore = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _isLoadingMore = false;
         });
       }
     }
@@ -219,6 +189,13 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
               onPressed: _showMoveDialog,
               tooltip: 'Mover a otro álbum',
             ),
+            if (widget.folderId == Folder.trashId)
+              IconButton(
+                icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
+                onPressed: () =>
+                    _showPermanentDeleteDialog(_selectedIds.toList()),
+                tooltip: 'Eliminar definitivamente',
+              ),
           ] else ...[
             // Sort Button
             IconButton(
@@ -240,6 +217,15 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
                 onPressed: () => _showDeleteDialog(),
               ),
             ],
+            if (widget.folderId == Folder.trashId)
+              IconButton(
+                icon: const Icon(Icons.delete_forever, color: Colors.redAccent),
+                onPressed: () => _showPermanentDeleteDialog(
+                  _mediaItems.map((e) => e.id).toList(),
+                  isDeleteAll: true,
+                ),
+                tooltip: 'Vaciar papelera',
+              ),
           ],
         ],
       ),
@@ -276,12 +262,8 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
                 mainAxisSpacing: 8,
               ),
               // Add +1 for loading indicator if loading more
-              itemCount: _mediaItems.length + (_isLoadingMore ? 1 : 0),
+              itemCount: _mediaItems.length,
               itemBuilder: (context, index) {
-                if (index == _mediaItems.length) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
                 final item = _mediaItems[index];
                 final isSelected = _selectedIds.contains(item.id);
 
@@ -437,6 +419,77 @@ class _FolderGalleryScreenState extends ConsumerState<FolderGalleryScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _showPermanentDeleteDialog(
+    List<String> idsToDelete, {
+    bool isDeleteAll = false,
+  }) async {
+    if (idsToDelete.isEmpty) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          isDeleteAll ? '¿Vaciar papelera?' : '¿Eliminar definitivamente?',
+        ),
+        content: Text(
+          isDeleteAll
+              ? 'Se eliminarán ${idsToDelete.length} archivos de forma permanente. Esta acción NO se puede deshacer.'
+              : 'Se eliminarán ${idsToDelete.length} archivos seleccionados de forma permanente. Esta acción NO se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      // Use repository directly
+      final repository = ref.read(mediaRepositoryProvider);
+
+      try {
+        for (final id in idsToDelete) {
+          await repository.permanentlyDeleteMedia(id);
+        }
+
+        // Invalidate counts
+        ref.invalidate(folderCountProvider);
+        ref.invalidate(
+          unorganizedMediaProvider,
+        ); // In case they were unorganized-linked
+
+        if (mounted) {
+          if (_isSelectionMode) {
+            _exitSelectionMode();
+          }
+
+          // Refresh current view
+          _loadMedia(refresh: true);
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Archivos eliminados permanentemente'),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('Error permanently deleting: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
+        }
+      }
+    }
   }
 
   void _showMoveDialog() {

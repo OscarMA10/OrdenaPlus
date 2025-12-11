@@ -4,11 +4,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 // State class for Settings
 class SettingsState {
   final int gridColumns;
+  final bool isAlbumsGrid;
 
-  SettingsState({this.gridColumns = 3});
+  SettingsState({this.gridColumns = 3, this.isAlbumsGrid = true});
 
-  SettingsState copyWith({int? gridColumns}) {
-    return SettingsState(gridColumns: gridColumns ?? this.gridColumns);
+  SettingsState copyWith({int? gridColumns, bool? isAlbumsGrid}) {
+    return SettingsState(
+      gridColumns: gridColumns ?? this.gridColumns,
+      isAlbumsGrid: isAlbumsGrid ?? this.isAlbumsGrid,
+    );
   }
 }
 
@@ -23,8 +27,9 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
 
     // Load Grid
     final gridColumns = prefs.getInt('gridColumns') ?? 3;
+    final isAlbumsGrid = prefs.getBool('isAlbumsGrid') ?? true;
 
-    state = SettingsState(gridColumns: gridColumns);
+    state = SettingsState(gridColumns: gridColumns, isAlbumsGrid: isAlbumsGrid);
   }
 
   Future<void> setGridColumns(int columns) async {
@@ -32,6 +37,12 @@ class SettingsNotifier extends StateNotifier<SettingsState> {
     state = state.copyWith(gridColumns: columns);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('gridColumns', columns);
+  }
+
+  Future<void> setAlbumsGrid(bool isGrid) async {
+    state = state.copyWith(isAlbumsGrid: isGrid);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isAlbumsGrid', isGrid);
   }
 }
 

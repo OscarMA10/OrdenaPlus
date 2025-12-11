@@ -142,6 +142,8 @@ class _ThumbnailWidgetState extends State<ThumbnailWidget> {
       _fileImage!,
       fit: widget.fit,
       gaplessPlayback: true,
+      // Optimize memory: resize image to thumbnail size
+      cacheWidth: (widget.size * 3).toInt(),
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         if (wasSynchronouslyLoaded) return child;
         return AnimatedOpacity(

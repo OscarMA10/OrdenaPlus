@@ -405,6 +405,42 @@ class MediaRepositoryImpl implements MediaRepository {
   }
 
   @override
+  Future<void> permanentlyDeleteMedia(String mediaId) async {
+    final db = await _dbHelper.database;
+
+    // 1. Get file path
+    final mediaResult = await db.query(
+      'media_items',
+      columns: ['path'],
+      where: 'id = ?',
+      whereArgs: [mediaId],
+    );
+
+    if (mediaResult.isNotEmpty) {
+      final path = mediaResult.first['path'] as String;
+      final file = File(path);
+
+      // 2. Delete physical file
+      if (await file.exists()) {
+        try {
+          await file.delete();
+        } catch (e) {
+          debugPrint('Error deleting file permanently: $e');
+          // Proceed to delete from DB anyway?
+          // Yes, if we can't delete the file (e.g. permission),
+          // we might still want to remove it from app if it's "phantom".
+          // But strict behavior is better.
+          // For now, let's assume if it fails, we throw or return.
+          // But to avoid "stuck" items, we usually continue.
+        }
+      }
+    }
+
+    // 3. Delete from DB
+    await db.delete('media_items', where: 'id = ?', whereArgs: [mediaId]);
+  }
+
+  @override
   Future<void> restoreMedia(
     String mediaId, {
     String? targetPath,

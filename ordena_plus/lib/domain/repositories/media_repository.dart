@@ -23,6 +23,9 @@ abstract class MediaRepository {
   Future<void> syncMedia(); // Syncs device media with local DB
   Stream<double> syncWithProgress(); // Syncs with progress stream (0.0 to 1.0)
   Future<void> deleteMedia(String mediaId); // Move to trash or delete
+  Future<void> permanentlyDeleteMedia(
+    String mediaId,
+  ); // Permanently delete from device
   Future<void> restoreMedia(
     String mediaId, {
     String? targetPath,
